@@ -4,9 +4,6 @@ import { User } from '../../auth/entities/user.entity';
 export type AnalysisStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 @Entity('analysis_runs')
-@Index(['student'])
-@Index(['status'])
-@Index(['createdAt'])
 export class AnalysisRun {
   @PrimaryGeneratedColumn()
   id: number;

@@ -33,14 +33,14 @@ import { User } from './auth/entities/user.entity';
         username: configService.get<string>('DB_USERNAME') || 'analysis_user',
         password: configService.get<string>('DB_PASSWORD') || 'admin',
         database: configService.get<string>('DB_DATABASE') || 'analysis_db',
-  // No registrar aquí las entidades explícitamente: use `autoLoadEntities` para
-  // que los repositorios se importen vía `TypeOrmModule.forFeature()` en cada
-  // módulo sin que TypeORM intente recrear índices duplicados en despliegue.
-  // La gestión de esquema en producción debe hacerse mediante migraciones.
-  autoLoadEntities: true,
-  // Preferir control por variables de entorno. Si no existen, usar valores conservadores.
-  // IMPORTANT: en producción recomendamos DB_SYNCHRONIZE=false y usar migraciones.
-  synchronize: configService.get('DB_SYNCHRONIZE') === 'true',
+        // No registrar aquí las entidades explícitamente: use `autoLoadEntities` para
+        // que los repositorios se importen vía `TypeOrmModule.forFeature()` en cada
+        // módulo sin que TypeORM intente recrear índices duplicados en despliegue.
+        // La gestión de esquema en producción debe hacerse mediante migraciones.
+        autoLoadEntities: true,
+        // Preferir control por variables de entorno. Si no existen, usar valores conservadores.
+        // IMPORTANT: en producción recomendamos DB_SYNCHRONIZE=false y usar migraciones.
+        synchronize: configService.get('DB_SYNCHRONIZE') === 'true',
         logging: configService.get<boolean>('DB_LOGGING') === true || configService.get('DB_LOGGING') === 'true' ? true : false,
         ssl: configService.get<boolean>('DB_SSL') === true || configService.get('DB_SSL') === 'true' ? true : false,
         dropSchema: false,

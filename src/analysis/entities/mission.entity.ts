@@ -42,7 +42,6 @@ export class Mission {
   @Column({ type: 'jsonb', nullable: true })
   metadata: any;
 
-  @CreateDateColumn()
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
