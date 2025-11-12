@@ -1,14 +1,12 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { DatabaseModule } from '../database/database.module';
 import { RankingService } from './ranking.service';
 import { RankingController } from './ranking.controller';
 import { User } from '../auth/entities/user.entity';
 import { AnalysisRun } from '../analysis/entities/analysis-run.entity';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([User, AnalysisRun]),
-  ],
+  imports: [DatabaseModule],
   controllers: [RankingController],
   providers: [RankingService],
   exports: [RankingService],
