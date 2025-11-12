@@ -9,8 +9,15 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   // Configuración de CORS (más permisiva para debugging)
+  // Leer configuración de CORS desde variables de entorno (CORS_ORIGIN puede ser '*' o una lista separada por comas)
+  const corsOriginRaw = configService.get<string>('CORS_ORIGIN') || process.env.CORS_ORIGIN || '*';
+  let corsOrigin: any = true; // por defecto permitir (para compatibilidad en desarrollo)
+  if (corsOriginRaw && corsOriginRaw !== '*') {
+    corsOrigin = corsOriginRaw.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://127.0.0.1:3000', '*'],
+    origin: corsOrigin,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
     credentials: true,
@@ -29,12 +36,15 @@ async function bootstrap() {
   // Configuración del prefijo global
   app.setGlobalPrefix('api');
 
-  const port = configService.get('PORT', 3001);
-  await app.listen(port);
-  
-  logger.log(`🚀 Servidor iniciado en http://localhost:${port}`);
-  logger.log(`📊 API disponible en http://localhost:${port}/api`);
-  logger.log(`🗃️ Base de datos: ${configService.get('DB_HOST')}:${configService.get('DB_PORT')}`);
+  const port = Number(configService.get('PORT') || process.env.PORT || 3001);
+  // En entornos en la nube (Render, Docker) debemos ligar a 0.0.0.0 para exponer el puerto
+  const host = configService.get('HOST') || process.env.HOST || '0.0.0.0';
+
+  await app.listen(port, host);
+
+  logger.log(`🚀 Servidor iniciado en http://${host}:${port}`);
+  logger.log(`📊 API disponible en http://${host}:${port}/api`);
+  logger.log(`🌐 CORS origen(es): ${corsOriginRaw}`);
 }
 
 bootstrap().catch((error) => {
