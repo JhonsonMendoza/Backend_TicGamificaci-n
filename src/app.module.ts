@@ -38,7 +38,7 @@ import { User } from './auth/entities/user.entity';
         synchronize: configService.get('DB_SYNCHRONIZE') === 'true',
         logging: configService.get<boolean>('DB_LOGGING') === true || configService.get('DB_LOGGING') === 'true' ? true : false,
         ssl: configService.get<boolean>('DB_SSL') === true || configService.get('DB_SSL') === 'true' ? true : false,
-        dropSchema: configService.get<boolean>('DB_DROP_SCHEMA') === true || configService.get('DB_DROP_SCHEMA') === 'true' ? true : false,
+        dropSchema: false,
         // Configuraciones adicionales para la resiliencia
         retryAttempts: Number(configService.get<number>('DB_RETRY_ATTEMPTS') || 3),
         retryDelay: Number(configService.get<number>('DB_RETRY_DELAY') || 3000),
