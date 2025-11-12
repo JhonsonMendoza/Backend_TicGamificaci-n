@@ -296,4 +296,38 @@ export class AnalysisController {
       throw new BadRequestException(error.message);
     }
   }
+
+  @Post(':id/reanalyze')
+  @UseGuards(AuthGuard('jwt'))
+  @UseInterceptors(FileInterceptor('file'))
+  async reanalyzeAnalysis(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Archivo requerido para re-análisis');
+    }
+
+    try {
+      const analysis = await this.analysisService.findById(id);
+
+      // Validar que el usuario autenticado sea el propietario
+      const userId = req.user?.id;
+      if (!userId || Number(analysis.userId) !== Number(userId)) {
+        throw new BadRequestException('No autorizado para re-análisis de este análisis');
+      }
+
+      // Ejecutar pipeline con student original y userId del solicitante
+      const result = await this.analysisService.runPipeline(file.buffer, file.originalname, analysis.student, userId);
+
+      return {
+        success: true,
+        message: 'Re-análisis iniciado',
+        data: result,
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
 }

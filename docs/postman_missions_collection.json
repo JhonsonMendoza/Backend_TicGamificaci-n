@@ -1,0 +1,70 @@
+{
+  "info": {
+    "_postman_id": "a1e2b3c4-d5f6-7890-abcd-ef0123456789",
+    "name": "TESIS - Missions API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Colección para probar endpoints de misiones y re-análisis"
+  },
+  "item": [
+    {
+      "name": "Get My Missions",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }
+        ],
+        "url": { "raw": "{{baseUrl}}/api/missions/my", "host": ["{{baseUrl}}"], "path": ["api","missions","my"] }
+      }
+    },
+    {
+      "name": "Get Missions By Analysis",
+      "request": {
+        "method": "GET",
+        "header": [ { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" } ],
+        "url": { "raw": "{{baseUrl}}/api/missions/analysis/{{analysisId}}", "host": ["{{baseUrl}}"], "path": ["api","missions","analysis","{{analysisId}}"] }
+      }
+    },
+    {
+      "name": "Mark Mission Fixed",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" } ],
+        "url": { "raw": "{{baseUrl}}/api/missions/{{missionId}}/mark-fixed", "host": ["{{baseUrl}}"], "path": ["api","missions","{{missionId}}","mark-fixed"] }
+      }
+    },
+    {
+      "name": "Re-analyze Mission (upload file)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" } ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": "" }
+          ]
+        },
+        "url": { "raw": "{{baseUrl}}/api/missions/{{missionId}}/reanalyze", "host": ["{{baseUrl}}"], "path": ["api","missions","{{missionId}}","reanalyze"] }
+      }
+    },
+    {
+      "name": "Re-analyze Analysis (upload file)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" } ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": "" }
+          ]
+        },
+        "url": { "raw": "{{baseUrl}}/api/analysis/{{analysisId}}/reanalyze", "host": ["{{baseUrl}}"], "path": ["api","analysis","{{analysisId}}","reanalyze"] }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "token", "value": "" },
+    { "key": "analysisId", "value": "" },
+    { "key": "missionId", "value": "" }
+  ]
+}

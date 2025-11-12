@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { AnalysisRun, AnalysisStatus } from './entities/analysis-run.entity';
 import { FileService, ToolService } from './services';
 import { ToolResult } from './services/tool.service';
+import { MissionsService } from './missions.service';
 
 export interface AnalysisResult {
   id: number;
@@ -32,6 +33,7 @@ export class AnalysisService {
     private readonly analysisRunRepository: Repository<AnalysisRun>,
     private readonly fileService: FileService,
     private readonly toolService: ToolService,
+    private readonly missionsService: MissionsService,
   ) {}
 
   async runPipeline(fileBuffer: Buffer, originalFileName: string, student: string, userId?: number): Promise<AnalysisResult> {
@@ -85,6 +87,15 @@ export class AnalysisService {
       // 5. Procesar resultados
       const processedFindings = this.processToolResults(toolResults);
       analysisRun.findings = processedFindings;
+
+      // 5.1 Generar misiones automáticas a partir de los findings
+      try {
+        if (this.missionsService && typeof this.missionsService.createForAnalysis === 'function') {
+          await this.generateMissionsFromFindings(analysisRun, toolResults, this.missionsService);
+        }
+      } catch (e) {
+        this.logger.warn('No se pudo generar misiones automáticamente: ' + e.message);
+      }
 
       // 6. Calcular métricas
       const metrics = this.calculateMetrics(toolResults);
@@ -194,6 +205,134 @@ export class AnalysisService {
     }
 
     return processed;
+  }
+
+  /**
+   * Generar misiones (missions) a partir de los findings procesados.
+   * Las misiones se crean con severidad derivada de la clasificación interna.
+   */
+  async generateMissionsFromFindings(analysis: AnalysisRun, toolResults: ToolResult[], missionsService: any): Promise<any[]> {
+    // Normalizar todos los findings en una lista plana
+    const allFindings: any[] = [];
+    for (const tr of toolResults) {
+      if (!tr || !tr.findings) continue;
+      if (Array.isArray(tr.findings)) {
+        for (const f of tr.findings) allFindings.push({ tool: tr.tool, raw: f });
+      } else if (typeof tr.findings === 'object') {
+        // Try to extract nested 'results' structure
+        const res = (tr.findings as any).results || tr.findings;
+        if (res && typeof res === 'object') {
+          for (const key of Object.keys(res || {})) {
+            const item = res[key];
+            const arr = item?.findings || item || [];
+            if (Array.isArray(arr)) {
+              for (const f of arr) allFindings.push({ tool: tr.tool, raw: f });
+            }
+          }
+        }
+      }
+    }
+
+    const missionsToCreate: Partial<any>[] = [];
+
+    for (const f of allFindings) {
+      // Determinar severidad
+      const severity = this.determineSeverity(f.tool, f.raw);
+      // Construir título y descripción concisa
+      const filePath = f.raw.path || f.raw.sourceLine?.sourcefile || f.raw.sourcefile || f.raw.fileName || null;
+      const startLine = f.raw.start?.line || f.raw.sourceLine?.beginline || f.raw.sourceLine?.start || null;
+      const endLine = f.raw.end?.line || f.raw.sourceLine?.endline || f.raw.sourceLine?.end || null;
+
+      const title = `${severity.toUpperCase()} - ${f.tool} - ${f.raw.message || f.raw.rule || f.raw.type || f.raw.check_id || 'Issue detected'}`;
+      const description = f.raw.message || f.raw.description || JSON.stringify(f.raw).slice(0, 400);
+
+      missionsToCreate.push({
+        title,
+        description,
+        filePath,
+        lineStart: startLine ? Number(startLine) : null,
+        lineEnd: endLine ? Number(endLine) : null,
+        severity,
+        metadata: { tool: f.tool, raw: f.raw }
+      });
+    }
+
+    // Dejar un tope razonable (por ejemplo 200 misiones)
+    const limited = missionsToCreate.slice(0, 200);
+
+    // Crear misiones usando el servicio pasado
+    const created = await missionsService.createForAnalysis(analysis, limited);
+
+    // Mapear las misiones recién creadas a los findings procesados dentro del objeto `analysis`
+    try {
+      if (analysis && analysis.findings && analysis.findings.results) {
+        for (const cm of created) {
+          try {
+            const tool = cm.metadata?.tool;
+            const rawMeta = cm.metadata?.raw || {};
+            const resultsForTool = analysis.findings.results[tool];
+            if (!resultsForTool) continue;
+            const arr = Array.isArray(resultsForTool.findings) ? resultsForTool.findings : [];
+
+            // Buscar un finding que coincida razonablemente con la misión creada
+            const matchIndex = arr.findIndex((f: any) => {
+              try {
+                const pathCandidates = [f.path, f.file, f.sourcefile, f.fileName, f.filename, f['$']?.sourcefile, f.sourceLine?.sourcefile];
+                const fpath = pathCandidates.find((p: any) => p != null);
+                const missionPath = cm.filePath || rawMeta.path || rawMeta.file || rawMeta.sourcefile || null;
+
+                // Comparar path si existe
+                if (missionPath && fpath) {
+                  const equalPath = ('' + fpath).endsWith('' + missionPath) || ('' + fpath) === ('' + missionPath);
+                  if (!equalPath) return false;
+                }
+
+                // Comparar líneas si existen
+                const fstart = f.line || f.start?.line || f.sourceLine?.beginline || f.startLine || f.$?.start || null;
+                const mstart = cm.lineStart || rawMeta.start || rawMeta.startLine || null;
+                if (mstart && fstart) {
+                  if (Number(fstart) !== Number(mstart)) return false;
+                }
+
+                // Comparar mensaje/descr
+                const fmsg = (f.message || f.description || f.rule || '').toString();
+                const mmsg = (rawMeta.message || rawMeta.rule || cm.title || '').toString();
+                if (mmsg && fmsg) {
+                  if (!fmsg.includes(mmsg) && !mmsg.includes(fmsg)) {
+                    // Si no coinciden por mensaje, aún así podríamos aceptar si path/line coinciden
+                    // permitimos caída aquí
+                  }
+                }
+
+                return true;
+              } catch (err) {
+                return false;
+              }
+            });
+
+            if (matchIndex >= 0) {
+              // Marcar el finding con la referencia a la misión
+              arr[matchIndex]._missionId = cm.id;
+              arr[matchIndex].missionId = cm.id;
+            }
+          } catch (err) {
+            // ignorar errores individuales de mapeo
+            this.logger.warn('Error mapeando misión a finding: ' + err.message);
+          }
+        }
+
+        // Guardar cambios en el registro de análisis para que el frontend pueda ver la relación
+        try {
+          await this.analysisRunRepository.save(analysis);
+        } catch (err) {
+          this.logger.warn('No se pudo persistir mapping misiones-findings: ' + err.message);
+        }
+      }
+    } catch (err) {
+      this.logger.warn('Error durante el mapeo de misiones a findings: ' + err.message);
+    }
+
+    return created;
   }
 
   private calculateMetrics(toolResults: ToolResult[]): {
