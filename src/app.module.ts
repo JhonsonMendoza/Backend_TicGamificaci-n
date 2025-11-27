@@ -30,7 +30,7 @@ import { User } from './auth/entities/user.entity';
         type: 'postgres',
         host: configService.get<string>('DB_HOST') || 'localhost',
         port: Number(configService.get<number>('DB_PORT') || 5432),
-        username: configService.get<string>('DB_USERNAME') || 'analysis_user',
+        username: configService.get<string>('DB_USERNAME') || 'admin',
         password: configService.get<string>('DB_PASSWORD') || 'admin',
         database: configService.get<string>('DB_DATABASE') || 'analysis_db',
         // No registrar aquí las entidades explícitamente: use `autoLoadEntities` para
@@ -40,7 +40,7 @@ import { User } from './auth/entities/user.entity';
         autoLoadEntities: true,
         // Preferir control por variables de entorno. Si no existen, usar valores conservadores.
         // IMPORTANT: en producción recomendamos DB_SYNCHRONIZE=false y usar migraciones.
-        synchronize: configService.get('DB_SYNCHRONIZE') === 'true',
+        synchronize: configService.get('DB_SYNCHRONIZE') === 'false',
         logging: configService.get<boolean>('DB_LOGGING') === true || configService.get('DB_LOGGING') === 'true' ? true : false,
         ssl: configService.get<boolean>('DB_SSL') === true || configService.get('DB_SSL') === 'true' ? true : false,
         dropSchema: false,

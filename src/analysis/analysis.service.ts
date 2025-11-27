@@ -211,6 +211,124 @@ export class AnalysisService {
    * Generar misiones (missions) a partir de los findings procesados.
    * Las misiones se crean con severidad derivada de la clasificación interna.
    */
+  /**
+   * Genera una descripción educativa y amigable para principiantes basada en el error detectado
+   */
+  private generateEducationalDescription(tool: string, finding: any, severity: string): { title: string; description: string } {
+    const originalMessage = finding.message || finding.description || finding.rule || finding.type || finding.check_id || 'Problema detectado';
+    const ruleId = finding.ruleId || finding.rule || finding.type || finding.check_id || finding.$?.type || '';
+    
+    // Plantillas educativas por categorías comunes
+    const educationalTemplates: { [key: string]: { title: string; explanation: string; recommendation: string } } = {
+      // Errores de recursos no cerrados
+      'resource-leak': {
+        title: '📚 Recurso sin cerrar correctamente',
+        explanation: 'Has abierto un recurso (como un archivo, conexión a base de datos, o stream) pero no lo estás cerrando. Esto puede causar problemas de memoria y rendimiento.',
+        recommendation: 'Usa try-with-resources en Java o asegúrate de cerrar el recurso en un bloque finally. Ejemplo: try (FileReader fr = new FileReader("archivo.txt")) { ... }'
+      },
+      // Null pointer
+      'null': {
+        title: '⚠️ Posible error de variable null',
+        explanation: 'Estás usando una variable que podría ser null (vacía) sin verificar primero. Esto puede causar que tu programa se detenga inesperadamente.',
+        recommendation: 'Antes de usar la variable, verifica que no sea null: if (variable != null) { ... }'
+      },
+      // Variables no usadas
+      'unused': {
+        title: '🧹 Variable o código sin usar',
+        explanation: 'Has declarado una variable, método o importación que no estás usando en tu código. Esto hace que tu código sea más difícil de leer y mantener.',
+        recommendation: 'Elimina el código que no estés usando para mantener tu proyecto limpio y fácil de entender.'
+      },
+      // Comparaciones
+      'equality': {
+        title: '🔍 Problema con comparación de valores',
+        explanation: 'Estás comparando valores de forma incorrecta. En Java, usar == para comparar objetos como String verifica si son el mismo objeto en memoria, no si tienen el mismo contenido.',
+        recommendation: 'Para comparar contenido de objetos usa .equals(): if (texto1.equals(texto2)) { ... }'
+      },
+      // Seguridad
+      'security': {
+        title: '🔒 Problema de seguridad detectado',
+        explanation: 'Tu código tiene una vulnerabilidad de seguridad que podría ser explotada por usuarios malintencionados.',
+        recommendation: 'Revisa las mejores prácticas de seguridad para este tipo de operación. Nunca confíes en datos que vienen del usuario sin validarlos primero.'
+      },
+      // Excepciones
+      'exception': {
+        title: '🚨 Manejo incorrecto de errores',
+        explanation: 'No estás manejando correctamente los posibles errores que pueden ocurrir. Esto puede hacer que tu programa falle sin dar información útil.',
+        recommendation: 'Usa bloques try-catch para manejar errores: try { ... } catch (Exception e) { // maneja el error }'
+      },
+      // Performance
+      'performance': {
+        title: '⚡ Problema de rendimiento',
+        explanation: 'Tu código funciona pero podría ser más eficiente. Esto es importante cuando trabajas con muchos datos o cuando el código se ejecuta muchas veces.',
+        recommendation: 'Considera usar estructuras de datos más eficientes o algoritmos optimizados para esta operación.'
+      },
+      // Nombres
+      'naming': {
+        title: '📝 Nombre poco claro o incorrecto',
+        explanation: 'El nombre que elegiste para esta variable, método o clase no sigue las convenciones de Java o no es descriptivo.',
+        recommendation: 'Usa nombres descriptivos en camelCase para variables y métodos (ej: cantidadUsuarios) y PascalCase para clases (ej: UsuarioActivo).'
+      },
+      // Complejidad
+      'complexity': {
+        title: '🌀 Código demasiado complejo',
+        explanation: 'Este método o función tiene demasiadas decisiones o caminos diferentes, lo que hace difícil entenderlo y probarlo.',
+        recommendation: 'Divide este código en funciones más pequeñas y simples. Cada función debería hacer una sola cosa bien.'
+      }
+    };
+
+    // Detectar categoría del error
+    let category = 'general';
+    const msgLower = (originalMessage + ' ' + ruleId).toLowerCase();
+    
+    if (msgLower.includes('resource') || msgLower.includes('close') || msgLower.includes('leak')) {
+      category = 'resource-leak';
+    } else if (msgLower.includes('null') || msgLower.includes('npe') || msgLower.includes('pointer')) {
+      category = 'null';
+    } else if (msgLower.includes('unused') || msgLower.includes('never read') || msgLower.includes('not used')) {
+      category = 'unused';
+    } else if (msgLower.includes('equal') || msgLower.includes('comparison') || msgLower.includes('compare')) {
+      category = 'equality';
+    } else if (msgLower.includes('security') || msgLower.includes('injection') || msgLower.includes('vulnerable')) {
+      category = 'security';
+    } else if (msgLower.includes('exception') || msgLower.includes('catch') || msgLower.includes('throw')) {
+      category = 'exception';
+    } else if (msgLower.includes('performance') || msgLower.includes('inefficient') || msgLower.includes('slow')) {
+      category = 'performance';
+    } else if (msgLower.includes('name') || msgLower.includes('naming') || msgLower.includes('convention')) {
+      category = 'naming';
+    } else if (msgLower.includes('complex') || msgLower.includes('cognitive') || msgLower.includes('cyclomatic')) {
+      category = 'complexity';
+    }
+
+    const template = educationalTemplates[category];
+    
+    if (template) {
+      // Usar plantilla educativa
+      const severityEmoji = severity === 'high' ? '🔴' : severity === 'medium' ? '🟡' : '🟢';
+      return {
+        title: `${severityEmoji} ${template.title}`,
+        description: `**¿Qué está pasando?**\n${template.explanation}\n\n**¿Cómo mejorar tu código?**\n${template.recommendation}\n\n**Detalle técnico:** ${originalMessage}\n\n**Herramienta:** ${tool}`
+      };
+    }
+
+    // Fallback: descripción genérica pero educativa
+    const severityEmoji = severity === 'high' ? '🔴' : severity === 'medium' ? '🟡' : '🟢';
+    let genericExplanation = '';
+    
+    if (severity === 'high') {
+      genericExplanation = 'Este es un problema importante que debes corregir. Puede causar errores graves en tu programa o problemas de seguridad.';
+    } else if (severity === 'medium') {
+      genericExplanation = 'Este es un problema que debes revisar. Aunque tu código puede funcionar, esta mejora hará que sea más seguro y fácil de mantener.';
+    } else {
+      genericExplanation = 'Esta es una sugerencia de mejora. Tu código funciona, pero siguiendo esta recomendación tendrás un código más limpio y profesional.';
+    }
+
+    return {
+      title: `${severityEmoji} Mejora tu código: ${originalMessage.substring(0, 80)}${originalMessage.length > 80 ? '...' : ''}`,
+      description: `**¿Qué está pasando?**\n${genericExplanation}\n\n**Mensaje del análisis:**\n${originalMessage}\n\n**Herramienta que lo detectó:** ${tool}\n\n**¿Qué hacer?** Lee el mensaje cuidadosamente y busca en la documentación de Java o pregunta a tu profesor sobre este tema específico.`
+    };
+  }
+
   async generateMissionsFromFindings(analysis: AnalysisRun, toolResults: ToolResult[], missionsService: any): Promise<any[]> {
     // Normalizar todos los findings en una lista plana
     const allFindings: any[] = [];
@@ -238,17 +356,18 @@ export class AnalysisService {
     for (const f of allFindings) {
       // Determinar severidad
       const severity = this.determineSeverity(f.tool, f.raw);
-      // Construir título y descripción concisa
+      
+      // Generar título y descripción educativa
+      const educational = this.generateEducationalDescription(f.tool, f.raw, severity);
+      
+      // Construir ubicación del problema
       const filePath = f.raw.path || f.raw.sourceLine?.sourcefile || f.raw.sourcefile || f.raw.fileName || null;
       const startLine = f.raw.start?.line || f.raw.sourceLine?.beginline || f.raw.sourceLine?.start || null;
       const endLine = f.raw.end?.line || f.raw.sourceLine?.endline || f.raw.sourceLine?.end || null;
 
-      const title = `${severity.toUpperCase()} - ${f.tool} - ${f.raw.message || f.raw.rule || f.raw.type || f.raw.check_id || 'Issue detected'}`;
-      const description = f.raw.message || f.raw.description || JSON.stringify(f.raw).slice(0, 400);
-
       missionsToCreate.push({
-        title,
-        description,
+        title: educational.title,
+        description: educational.description,
         filePath,
         lineStart: startLine ? Number(startLine) : null,
         lineEnd: endLine ? Number(endLine) : null,

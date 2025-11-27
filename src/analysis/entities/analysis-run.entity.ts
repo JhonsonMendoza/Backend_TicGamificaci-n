@@ -11,7 +11,7 @@ export class AnalysisRun {
   @Column({ type: 'varchar', length: 500 })
   projectPath: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: 'varchar', length: 255, nullable: true })
   @Index()
   student: string;
 

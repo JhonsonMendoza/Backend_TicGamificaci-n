@@ -107,7 +107,7 @@ export class AnalysisController {
     }
 
     // Si el usuario está autenticado, usar su email como student si no se proporciona
-    const studentName = student || req.user.email || req.user.name;
+    const studentName = student || req.user?.name || req.user?.email || `Usuario_${req.user?.id}` || 'Anónimo';
 
     try {
       console.log('=== Starting authenticated analysis pipeline ===');

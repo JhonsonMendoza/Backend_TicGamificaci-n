@@ -18,7 +18,7 @@ export class Mission {
   @Column({ name: 'analysis_run_id' })
   analysisRunId: number;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: 'varchar', length: 255, nullable: true })
   title: string;
 
   @Column({ type: 'text', nullable: true })
@@ -33,7 +33,7 @@ export class Mission {
   @Column({ name: 'line_end', type: 'integer', nullable: true })
   lineEnd: number;
 
-  @Column({ type: 'varchar', length: 10 })
+  @Column({ type: 'varchar', length: 10, nullable: true })
   severity: MissionSeverity;
 
   @Column({ type: 'varchar', length: 20, default: 'pending' })
