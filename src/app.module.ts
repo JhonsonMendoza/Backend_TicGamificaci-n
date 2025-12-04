@@ -11,6 +11,7 @@ import { AppService } from './app.service';
 import { AnalysisModule } from './analysis/analysis.module';
 import { AuthModule } from './auth/auth.module';
 import { RankingModule } from './ranking/ranking.module';
+import { CustomMissionsModule } from './missions/custom-missions.module';
 import { AnalysisRun } from './analysis/entities/analysis-run.entity';
 import { Mission } from './analysis/entities/mission.entity';
 import { User } from './auth/entities/user.entity';
@@ -113,6 +114,7 @@ import { User } from './auth/entities/user.entity';
     AnalysisModule,
     AuthModule,
     RankingModule,
+    CustomMissionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -318,13 +318,21 @@ export class AnalysisController {
         throw new BadRequestException('No autorizado para re-análisis de este análisis');
       }
 
-      // Ejecutar pipeline con student original y userId del solicitante
-      const result = await this.analysisService.runPipeline(file.buffer, file.originalname, analysis.student, userId);
+      // Ejecutar pipeline con student original, userId del solicitante, y pasar ID del análisis a re-analizar
+      const studentName = analysis.student || req.user?.name || req.user?.email || `Usuario_${req.user?.id}` || 'Anónimo';
+      const result = await this.analysisService.runPipeline(
+        file.buffer, 
+        file.originalname, 
+        studentName, 
+        userId,
+        id // ID del análisis anterior para re-análisis
+      );
 
       return {
         success: true,
-        message: 'Re-análisis iniciado',
+        message: 'Re-análisis completado. ' + (result.id === id ? 'Proyecto actualizado (mismo proyecto detectado).' : 'Nuevo proyecto detectado, análisis creado.'),
         data: result,
+        isSameProject: result.id === id,
       };
     } catch (error) {
       throw new BadRequestException(error.message);

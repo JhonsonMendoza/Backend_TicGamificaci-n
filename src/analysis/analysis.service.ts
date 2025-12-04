@@ -36,23 +36,38 @@ export class AnalysisService {
     private readonly missionsService: MissionsService,
   ) {}
 
-  async runPipeline(fileBuffer: Buffer, originalFileName: string, student: string, userId?: number): Promise<AnalysisResult> {
+  async runPipeline(fileBuffer: Buffer, originalFileName: string, student: string, userId?: number, reanalysisOfId?: number): Promise<AnalysisResult> {
     let analysisRun: AnalysisRun;
     let projectPath: string;
+    let isReanalysis = !!reanalysisOfId;
+    let previousAnalysis: AnalysisRun | null = null;
 
     try {
-      // 1. Crear registro inicial
+      // Si es re-análisis, cargar el análisis anterior
+      if (isReanalysis) {
+        previousAnalysis = await this.analysisRunRepository.findOne({ 
+          where: { id: reanalysisOfId },
+          relations: ['user']
+        });
+        
+        if (!previousAnalysis) {
+          throw new Error('Análisis anterior no encontrado');
+        }
+      }
+
+      // 1. Crear registro inicial (o reutilizar si es re-análisis del mismo proyecto)
       console.log('=== Creating analysis record ===');
       console.log('Student:', student);
       console.log('User ID:', userId);
       console.log('Original filename:', originalFileName);
+      console.log('Is Reanalysis:', isReanalysis);
       
       analysisRun = this.analysisRunRepository.create({
         student,
         originalFileName,
         status: 'pending',
         projectPath: '',
-        userId: userId || null, // Asociar con usuario si está disponible
+        userId: userId || null,
       });
       analysisRun = await this.analysisRunRepository.save(analysisRun);
       
@@ -78,6 +93,44 @@ export class AnalysisService {
         jsFiles: fileInfo.jsFiles.length,
         linesOfCode: await this.countLinesOfCode(fileInfo.allFiles),
       };
+
+      // 3.1 Si es re-análisis, verificar si es el mismo proyecto
+      if (isReanalysis && previousAnalysis) {
+        const isSameProject = this.compareProjectStructure(
+          previousAnalysis.fileStats,
+          analysisRun.fileStats,
+          fileInfo
+        );
+
+        console.log('=== Project comparison ===');
+        console.log('Is same project:', isSameProject);
+
+        if (isSameProject) {
+          // Es el mismo proyecto: actualizar el análisis existente en lugar de crear uno nuevo
+          console.log('Detected same project - updating existing analysis');
+          
+          // Copiar datos importantes del análisis temporal al anterior
+          previousAnalysis.originalFileName = analysisRun.originalFileName;
+          previousAnalysis.projectPath = analysisRun.projectPath;
+          previousAnalysis.fileStats = analysisRun.fileStats;
+          previousAnalysis.status = 'processing';
+          
+          await this.analysisRunRepository.save(previousAnalysis);
+          
+          // Eliminar el análisis temporal
+          await this.analysisRunRepository.delete(analysisRun.id);
+          
+          // Usar el análisis anterior como el actual
+          analysisRun = previousAnalysis;
+          
+          this.logger.log(`Re-análisis: actualizando análisis existente ID: ${analysisRun.id}`);
+        } else {
+          // Es un proyecto diferente: mantener el nuevo análisis
+          console.log('Detected different project - creating new analysis record');
+          this.logger.log(`Re-análisis: proyecto diferente detectado, creando nuevo análisis ID: ${analysisRun.id}`);
+        }
+      }
+
       await this.analysisRunRepository.save(analysisRun);
 
       // 4. Ejecutar herramientas de análisis
@@ -88,13 +141,22 @@ export class AnalysisService {
       const processedFindings = this.processToolResults(toolResults);
       analysisRun.findings = processedFindings;
 
-      // 5.1 Generar misiones automáticas a partir de los findings
-      try {
-        if (this.missionsService && typeof this.missionsService.createForAnalysis === 'function') {
-          await this.generateMissionsFromFindings(analysisRun, toolResults, this.missionsService);
+      // 5.1 Si es re-análisis del mismo proyecto, actualizar estado de misiones existentes
+      if (isReanalysis && previousAnalysis && analysisRun.id === previousAnalysis.id) {
+        try {
+          await this.updateMissionsStatus(analysisRun, toolResults);
+        } catch (e) {
+          this.logger.warn('No se pudo actualizar estado de misiones: ' + e.message);
         }
-      } catch (e) {
-        this.logger.warn('No se pudo generar misiones automáticamente: ' + e.message);
+      } else {
+        // 5.2 Generar misiones automáticas para análisis nuevo
+        try {
+          if (this.missionsService && typeof this.missionsService.createForAnalysis === 'function') {
+            await this.generateMissionsFromFindings(analysisRun, toolResults, this.missionsService);
+          }
+        } catch (e) {
+          this.logger.warn('No se pudo generar misiones automáticamente: ' + e.message);
+        }
       }
 
       // 6. Calcular métricas
@@ -452,6 +514,210 @@ export class AnalysisService {
     }
 
     return created;
+  }
+
+  /**
+   * Compara la estructura de dos proyectos para determinar si son el mismo
+   * Retorna true si la similitud es >= 70%
+   */
+  private compareProjectStructure(
+    oldFileStats: any,
+    newFileStats: any,
+    newFileInfo: any
+  ): boolean {
+    if (!oldFileStats || !newFileStats) {
+      return false;
+    }
+
+    // Criterio 1: Comparar cantidad de archivos por tipo (tolerancia de ±30%)
+    const types = ['javaFiles', 'pythonFiles', 'jsFiles'];
+    let typeMatchCount = 0;
+    
+    for (const type of types) {
+      const oldCount = oldFileStats[type] || 0;
+      const newCount = newFileStats[type] || 0;
+      
+      if (oldCount === 0 && newCount === 0) {
+        typeMatchCount++;
+        continue;
+      }
+      
+      if (oldCount === 0 || newCount === 0) {
+        continue; // No coincide si uno tiene archivos y el otro no
+      }
+      
+      const ratio = Math.min(oldCount, newCount) / Math.max(oldCount, newCount);
+      if (ratio >= 0.7) { // 70% de similitud en cantidad
+        typeMatchCount++;
+      }
+    }
+
+    // Criterio 2: Comparar total de archivos (tolerancia de ±30%)
+    const oldTotal = oldFileStats.totalFiles || 0;
+    const newTotal = newFileStats.totalFiles || 0;
+    const totalRatio = oldTotal > 0 && newTotal > 0 
+      ? Math.min(oldTotal, newTotal) / Math.max(oldTotal, newTotal)
+      : 0;
+
+    // Criterio 3: Comparar líneas de código (tolerancia de ±40%)
+    const oldLoc = oldFileStats.linesOfCode || 0;
+    const newLoc = newFileStats.linesOfCode || 0;
+    const locRatio = oldLoc > 0 && newLoc > 0
+      ? Math.min(oldLoc, newLoc) / Math.max(oldLoc, newLoc)
+      : 0;
+
+    // Decisión: consideramos mismo proyecto si:
+    // - Al menos 2 de 3 tipos de archivos coinciden en cantidad (70% similitud)
+    // - Y el total de archivos es similar (70% similitud)
+    // - O las líneas de código son similares (60% similitud)
+    
+    const isSimilarByTypes = typeMatchCount >= 2;
+    const isSimilarByTotal = totalRatio >= 0.7;
+    const isSimilarByLoc = locRatio >= 0.6;
+
+    const isSameProject = (isSimilarByTypes && isSimilarByTotal) || 
+                          (isSimilarByTypes && isSimilarByLoc) ||
+                          (isSimilarByTotal && isSimilarByLoc && totalRatio >= 0.8);
+
+    console.log('=== Project Structure Comparison ===');
+    console.log('Old stats:', oldFileStats);
+    console.log('New stats:', newFileStats);
+    console.log('Type matches:', typeMatchCount, '/3');
+    console.log('Total ratio:', totalRatio.toFixed(2));
+    console.log('LOC ratio:', locRatio.toFixed(2));
+    console.log('Is same project:', isSameProject);
+
+    return isSameProject;
+  }
+
+  /**
+   * Actualiza el estado de las misiones existentes comparando con los nuevos findings
+   */
+  private async updateMissionsStatus(
+    analysis: AnalysisRun,
+    newToolResults: ToolResult[]
+  ): Promise<void> {
+    if (!this.missionsService) {
+      this.logger.warn('MissionsService no disponible para actualizar estado de misiones');
+      return;
+    }
+
+    // Obtener misiones existentes de este análisis
+    const missions = await this.missionsService.findByAnalysisId(analysis.id);
+    
+    if (!missions || missions.length === 0) {
+      this.logger.log('No hay misiones existentes para actualizar');
+      return;
+    }
+
+    this.logger.log(`Actualizando estado de ${missions.length} misiones existentes`);
+
+    // Extraer todos los findings del nuevo análisis
+    const newFindings = this.extractAllFindings(newToolResults);
+
+    let fixedCount = 0;
+    let stillPendingCount = 0;
+
+    for (const mission of missions) {
+      // Saltar misiones ya marcadas como fixed o skipped
+      if (mission.status === 'fixed' || mission.status === 'skipped') {
+        continue;
+      }
+
+      // Verificar si el problema de esta misión aún existe en los nuevos findings
+      const stillExists = this.findingStillExists(mission, newFindings);
+
+      if (!stillExists) {
+        // El problema fue corregido
+        await this.missionsService.markFixed(mission.id);
+        fixedCount++;
+        this.logger.log(`Misión ${mission.id} marcada como corregida (problema no encontrado en re-análisis)`);
+      } else {
+        stillPendingCount++;
+      }
+    }
+
+    this.logger.log(`Misiones actualizadas: ${fixedCount} corregidas, ${stillPendingCount} aún pendientes`);
+  }
+
+  /**
+   * Extrae todos los findings de los resultados de herramientas en un formato normalizado
+   */
+  private extractAllFindings(toolResults: ToolResult[]): any[] {
+    const allFindings: any[] = [];
+    
+    for (const tr of toolResults) {
+      if (!tr || !tr.findings) continue;
+      
+      if (Array.isArray(tr.findings)) {
+        for (const f of tr.findings) {
+          allFindings.push({ tool: tr.tool, finding: f });
+        }
+      } else if (typeof tr.findings === 'object') {
+        const res = (tr.findings as any).results || tr.findings;
+        if (res && typeof res === 'object') {
+          for (const key of Object.keys(res || {})) {
+            const item = res[key];
+            const arr = item?.findings || item || [];
+            if (Array.isArray(arr)) {
+              for (const f of arr) {
+                allFindings.push({ tool: tr.tool, finding: f });
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    return allFindings;
+  }
+
+  /**
+   * Verifica si un finding similar a una misión aún existe
+   */
+  private findingStillExists(mission: any, newFindings: any[]): boolean {
+    const missionMeta = mission.metadata?.raw || {};
+    const missionTool = mission.metadata?.tool;
+
+    for (const { tool, finding } of newFindings) {
+      // Debe ser de la misma herramienta
+      if (tool !== missionTool) {
+        continue;
+      }
+
+      // Comparar ubicación (archivo y línea)
+      const findingPath = finding.path || finding.file || finding.sourcefile || finding.fileName || 
+                         finding.sourceLine?.sourcefile || '';
+      const missionPath = mission.filePath || missionMeta.path || missionMeta.file || '';
+
+      if (missionPath && findingPath) {
+        const pathsMatch = findingPath.includes(missionPath) || missionPath.includes(findingPath);
+        
+        if (pathsMatch) {
+          // Comparar línea
+          const findingLine = finding.line || finding.start?.line || finding.sourceLine?.beginline || 
+                             finding.startLine || null;
+          const missionLine = mission.lineStart || missionMeta.line || missionMeta.startLine || null;
+
+          if (findingLine && missionLine && Math.abs(Number(findingLine) - Number(missionLine)) <= 2) {
+            // Mismo archivo y línea similar (±2 líneas de tolerancia)
+            // Comparar mensaje/regla
+            const findingMsg = (finding.message || finding.rule || finding.type || finding.check_id || '').toString();
+            const missionMsg = (missionMeta.message || missionMeta.rule || missionMeta.type || '').toString();
+
+            if (findingMsg && missionMsg && (
+              findingMsg.includes(missionMsg) || 
+              missionMsg.includes(findingMsg) ||
+              findingMsg === missionMsg
+            )) {
+              return true; // El finding aún existe
+            }
+          }
+        }
+      }
+    }
+
+    return false; // No se encontró un finding similar
   }
 
   private calculateMetrics(toolResults: ToolResult[]): {
