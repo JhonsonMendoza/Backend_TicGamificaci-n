@@ -39,9 +39,12 @@ import { User } from './auth/entities/user.entity';
         // módulo sin que TypeORM intente recrear índices duplicados en despliegue.
         // La gestión de esquema en producción debe hacerse mediante migraciones.
         autoLoadEntities: true,
+        // Migrations path
+        migrations: [join(__dirname, 'database/migrations/**/*{.ts,.js}')],
+        migrationsRun: configService.get('DB_RUN_MIGRATIONS') === 'true', // Ejecutar migraciones automáticamente
         // Preferir control por variables de entorno. Si no existen, usar valores conservadores.
         // IMPORTANT: en producción recomendamos DB_SYNCHRONIZE=false y usar migraciones.
-        synchronize: configService.get('DB_SYNCHRONIZE') === 'false',
+        synchronize: configService.get('DB_SYNCHRONIZE') !== 'false', // Solo sincronizar si no es explícitamente false
         logging: configService.get<boolean>('DB_LOGGING') === true || configService.get('DB_LOGGING') === 'true' ? true : false,
         ssl: configService.get<boolean>('DB_SSL') === true || configService.get('DB_SSL') === 'true' ? true : false,
         dropSchema: false,
