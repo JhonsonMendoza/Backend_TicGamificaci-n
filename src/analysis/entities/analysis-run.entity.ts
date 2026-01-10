@@ -8,7 +8,7 @@ export class AnalysisRun {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 500 })
+  @Column({ type: 'varchar', length: 500, name: 'project_path' })
   projectPath: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -23,10 +23,10 @@ export class AnalysisRun {
   @Column({ name: 'user_id', nullable: true })
   userId: number;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'original_file_name' })
   originalFileName: string;
 
-  @Column({ type: 'bigint', nullable: true })
+  @Column({ type: 'bigint', nullable: true, name: 'file_size' })
   fileSize: number;
 
   @Column({ type: 'varchar', length: 50, default: 'pending' })
@@ -36,28 +36,28 @@ export class AnalysisRun {
   @Column({ type: 'jsonb', nullable: true })
   findings: any;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'jsonb', nullable: true, name: 'tool_results' })
   toolResults: any;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'error_message' })
   errorMessage: string;
 
-  @Column({ type: 'integer', default: 0 })
+  @Column({ type: 'integer', default: 0, name: 'total_issues' })
   totalIssues: number;
 
-  @Column({ type: 'integer', default: 0 })
+  @Column({ type: 'integer', default: 0, name: 'high_severity_issues' })
   highSeverityIssues: number;
 
-  @Column({ type: 'integer', default: 0 })
+  @Column({ type: 'integer', default: 0, name: 'medium_severity_issues' })
   mediumSeverityIssues: number;
 
-  @Column({ type: 'integer', default: 0 })
+  @Column({ type: 'integer', default: 0, name: 'low_severity_issues' })
   lowSeverityIssues: number;
 
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, name: 'quality_score' })
   qualityScore: number;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'jsonb', nullable: true, name: 'file_stats' })
   fileStats: {
     totalFiles: number;
     javaFiles: number;
@@ -66,22 +66,22 @@ export class AnalysisRun {
     linesOfCode: number;
   };
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'analysis_log' })
   analysisLog: string;
 
-  @Column({ type: 'integer', default: 0 })
+  @Column({ type: 'integer', default: 0, name: 'processing_time_seconds' })
   processingTimeSeconds: number;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   version: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   @Index()
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'completed_at' })
   completedAt: Date;
 }

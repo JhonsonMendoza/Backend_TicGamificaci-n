@@ -50,22 +50,22 @@ export class Achievement {
   @Column({ type: 'varchar', length: 50, default: 'badge' })
   icon: string; // 'badge', 'star', 'trophy', 'flame', etc.
 
-  @Column({ type: 'integer' })
+  @Column({ type: 'integer', name: 'points_reward' })
   pointsReward: number; // Puntos que otorga al desbloquear
 
   @Column({ type: 'text' })
   condition: string; // Descripción de la condición para desbloquear
 
-  @Column({ type: 'boolean', default: false })
+  @Column({ type: 'boolean', default: false, name: 'is_unlocked' })
   isUnlocked: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'unlocked_at' })
   unlockedAt: Date;
 
-  @Column({ type: 'integer', nullable: true })
+  @Column({ type: 'integer', nullable: true, name: 'progress_current' })
   progressCurrent: number; // Progreso actual (ej: 45/50 hallazgos)
 
-  @Column({ type: 'integer', nullable: true })
+  @Column({ type: 'integer', nullable: true, name: 'progress_target' })
   progressTarget: number; // Meta (ej: 50 hallazgos)
 
   @Column({ type: 'varchar', length: 20, default: 'general' })
