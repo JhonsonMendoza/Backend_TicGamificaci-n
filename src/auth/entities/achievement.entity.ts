@@ -32,6 +32,7 @@ export type AchievementType =
 @Entity('achievements')
 @Index(['userId', 'type'])
 @Index(['unlockedAt'])
+@Index(['isUnlocked'])
 export class Achievement {
   @PrimaryGeneratedColumn()
   id: number;
@@ -56,11 +57,9 @@ export class Achievement {
   condition: string; // Descripción de la condición para desbloquear
 
   @Column({ type: 'boolean', default: false })
-  @Index()
   isUnlocked: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  @Index()
   unlockedAt: Date;
 
   @Column({ type: 'integer', nullable: true })
