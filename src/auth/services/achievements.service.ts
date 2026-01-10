@@ -171,29 +171,45 @@ export class AchievementsService {
 
   // Inicializar logros para un usuario (se llama al crear cuenta)
   async initializeAchievementsForUser(user: User): Promise<Achievement[]> {
-    const achievements: Achievement[] = [];
+    try {
+      if (!user || !user.id) {
+        this.logger.warn('Usuario sin ID al intentar inicializar logros');
+        return [];
+      }
 
-    for (const [type, definition] of Object.entries(ACHIEVEMENTS_DEFINITIONS)) {
-      const achievement = this.achievementRepository.create({
-        type: type as AchievementType,
-        name: definition.name,
-        description: definition.description,
-        icon: definition.icon,
-        pointsReward: definition.pointsReward,
-        condition: definition.condition,
-        category: definition.category,
-        isUnlocked: false,
-        unlockedAt: null,
-        userId: user.id,
-        progressCurrent: 0,
-        progressTarget: null,
-      });
+      const achievements: Achievement[] = [];
 
-      achievements.push(await this.achievementRepository.save(achievement));
+      for (const [type, definition] of Object.entries(ACHIEVEMENTS_DEFINITIONS)) {
+        try {
+          const achievement = this.achievementRepository.create({
+            type: type as AchievementType,
+            name: definition.name,
+            description: definition.description,
+            icon: definition.icon,
+            pointsReward: definition.pointsReward,
+            condition: definition.condition,
+            category: definition.category,
+            isUnlocked: false,
+            unlockedAt: null,
+            userId: user.id,
+            progressCurrent: 0,
+            progressTarget: null,
+          });
+
+          const saved = await this.achievementRepository.save(achievement);
+          achievements.push(saved);
+        } catch (error) {
+          this.logger.error(`Error al crear logro ${type} para usuario ${user.id}:`, error.message);
+          // Continuar con los siguientes logros en lugar de fallar completamente
+        }
+      }
+
+      this.logger.log(`Se inicializaron ${achievements.length} logros para usuario ${user.id}`);
+      return achievements;
+    } catch (error) {
+      this.logger.error(`Error crítico al inicializar logros para usuario ${user.id}:`, error.message);
+      return [];
     }
-
-    this.logger.log(`Se inicializaron 15 logros para usuario ${user.id}`);
-    return achievements;
   }
 
   // Obtener todos los logros del usuario

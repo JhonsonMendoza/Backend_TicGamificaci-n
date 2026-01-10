@@ -9,49 +9,77 @@ import {
   HttpCode,
   HttpStatus,
   Res,
-  NotFoundException
+  NotFoundException,
+  Inject
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { RegisterDto, LoginDto, UpdateProfileDto } from './dto/auth.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private configService: ConfigService
+  ) {}
 
   @Post('register')
   async register(@Body() registerDto: RegisterDto, @Res() res) {
-    const result = await this.authService.register(registerDto);
-    
-    // Establecer la cookie con el token
-    res.cookie('auth_token', result.token, {
-      httpOnly: true,
-      secure: false, // En desarrollo, false; en producción, true
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
-      path: '/',
-    });
-    
-    // Devolver la respuesta con el token también en JSON (para compatibilidad)
-    return res.json(result);
+    try {
+      const result = await this.authService.register(registerDto);
+      
+      const isProduction = this.configService.get('NODE_ENV') === 'production';
+      
+      // Establecer la cookie con el token
+      res.cookie('auth_token', result.token, {
+        httpOnly: true,
+        secure: isProduction, // true en producción, false en desarrollo
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+        path: '/',
+      });
+      
+      // Devolver la respuesta con el token también en JSON (para compatibilidad)
+      return res.json(result);
+    } catch (error) {
+      const statusCode = error.statusCode || 400;
+      return res.status(statusCode).json({
+        statusCode,
+        message: error.message || 'Error en el registro',
+        error: error.error || 'Bad Request'
+      });
+    }
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Body() loginDto: LoginDto, @Res() res) {
-    const result = await this.authService.login(loginDto);
-    
-    // Establecer la cookie con el token
-    res.cookie('auth_token', result.token, {
-      httpOnly: true,
-      secure: false, // En desarrollo, false; en producción, true
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
-      path: '/',
-    });
-    
-    // Devolver la respuesta con el token también en JSON (para compatibilidad)
-    return res.json(result);
+    try {
+      const result = await this.authService.login(loginDto);
+      
+      const isProduction = this.configService.get('NODE_ENV') === 'production';
+      const frontendUrl = this.configService.get('FRONTEND_URL');
+      
+      // Establecer la cookie con el token
+      res.cookie('auth_token', result.token, {
+        httpOnly: true,
+        secure: isProduction, // true en producción, false en desarrollo
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+        path: '/',
+        domain: isProduction ? undefined : undefined, // Solo en producción si es necesario
+      });
+      
+      // Devolver la respuesta con el token también en JSON (para compatibilidad)
+      return res.json(result);
+    } catch (error) {
+      return res.status(401).json({
+        statusCode: 401,
+        message: error.message || 'Credenciales inválidas',
+        error: 'Unauthorized'
+      });
+    }
   }
 
   @Get('google')
@@ -64,11 +92,12 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   async googleAuthRedirect(@Request() req, @Res() res) {
     try {
-      // req.user es la entidad User completa retornada por GoogleStrategy
       const user = req.user;
+      const frontendUrl = this.configService.get('FRONTEND_URL');
+      const isProduction = this.configService.get('NODE_ENV') === 'production';
       
       if (!user || !user.id) {
-        const errorUrl = `http://localhost:3000/auth/callback?error=authentication_failed`;
+        const errorUrl = `${frontendUrl}/auth/callback?error=authentication_failed`;
         return res.redirect(errorUrl);
       }
       
@@ -78,18 +107,18 @@ export class AuthController {
       // Establecer la cookie con el token
       res.cookie('auth_token', token, {
         httpOnly: true,
-        secure: false, // En desarrollo, false; en producción, true
-        sameSite: 'lax', // Permite el redirect desde Google
+        secure: isProduction,
+        sameSite: 'lax',
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
         path: '/',
       });
       
       // Redirigir al frontend con el token también en URL (para compatibilidad)
-      const redirectUrl = `http://localhost:3000/auth/callback?token=${token}`;
+      const redirectUrl = `${frontendUrl}/auth/callback?token=${token}`;
       return res.redirect(redirectUrl);
     } catch (error) {
-      // En caso de error, redirigir con mensaje de error
-      const errorUrl = `http://localhost:3000/auth/callback?error=authentication_failed`;
+      const frontendUrl = this.configService.get('FRONTEND_URL');
+      const errorUrl = `${frontendUrl}/auth/callback?error=authentication_failed`;
       return res.redirect(errorUrl);
     }
   }
