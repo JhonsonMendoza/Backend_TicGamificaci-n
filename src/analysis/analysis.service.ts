@@ -5,6 +5,7 @@ import { AnalysisRun, AnalysisStatus } from './entities/analysis-run.entity';
 import { FileService, ToolService } from './services';
 import { ToolResult } from './services/tool.service';
 import { MissionsService } from './missions.service';
+import { AchievementsService } from '../auth/services/achievements.service';
 
 export interface AnalysisResult {
   id: number;
@@ -34,6 +35,7 @@ export class AnalysisService {
     private readonly fileService: FileService,
     private readonly toolService: ToolService,
     private readonly missionsService: MissionsService,
+    private readonly achievementsService: AchievementsService,
   ) {}
 
   async runPipeline(fileBuffer: Buffer, originalFileName: string, student: string, userId?: number, reanalysisOfId?: number): Promise<AnalysisResult> {
@@ -171,6 +173,15 @@ export class AnalysisService {
       analysisRun.status = 'completed';
       analysisRun.completedAt = new Date();
       await this.analysisRunRepository.save(analysisRun);
+
+      // 7.1 Verificar y desbloquear logros si el usuario está autenticado
+      if (analysisRun.userId) {
+        try {
+          await this.achievementsService.checkAndUnlockAchievements(analysisRun.userId);
+        } catch (e) {
+          this.logger.warn('No se pudo verificar logros al completar análisis: ' + e.message);
+        }
+      }
 
       // 8. Limpiar archivos temporales (opcional)
       // await this.fileService.cleanupProject(projectPath);
@@ -1083,17 +1094,34 @@ export class AnalysisService {
   }
 
   // Nuevos métodos para usuarios autenticados
-  async findByUserId(userId: number, limit: number = 10): Promise<AnalysisResult[]> {
+  async findByUserId(userId: number, limit: number = 10, userEmail?: string, userName?: string): Promise<AnalysisResult[]> {
+    // Construir condición where dinámica
+    const conditions: any = {};
+    const orConditions: any[] = [{ userId }];
+    
+    // Si el usuario tiene email, buscar también análisis con ese email como estudiante
+    if (userEmail) {
+      orConditions.push({ student: userEmail });
+    }
+    
+    // Si el usuario tiene nombre, buscar también análisis con ese nombre como estudiante
+    if (userName) {
+      orConditions.push({ student: userName });
+    }
+    
     const analyses = await this.analysisRunRepository.find({
-      where: { userId },
+      where: orConditions.length > 1 ? orConditions : { userId },
       order: { createdAt: 'DESC' },
       take: limit,
     });
 
-    return analyses.map(analysis => this.mapToAnalysisResult(analysis));
+    // Deduplicar por ID en caso de duplicados
+    const uniqueAnalyses = Array.from(new Map(analyses.map(a => [a.id, a])).values());
+    
+    return uniqueAnalyses.map(analysis => this.mapToAnalysisResult(analysis));
   }
 
-  async getUserSummary(userId: number): Promise<{
+  async getUserSummary(userId: number, userEmail?: string, userName?: string): Promise<{
     totalAnalyses: number;
     averageScore: number;
     totalIssues: number;
@@ -1102,12 +1130,28 @@ export class AnalysisService {
     lowSeverityIssues: number;
     recentAnalyses: AnalysisResult[];
   }> {
+    // Buscar por userId o por email/nombre del estudiante
+    const orConditions: any[] = [
+      { userId }
+    ];
+    
+    if (userEmail) {
+      orConditions.push({ student: userEmail });
+    }
+    
+    if (userName) {
+      orConditions.push({ student: userName });
+    }
+    
     const analyses = await this.analysisRunRepository.find({
-      where: { userId },
+      where: orConditions.length > 1 ? orConditions : { userId },
       order: { createdAt: 'DESC' },
     });
 
-    const totalAnalyses = analyses.length;
+    // Deduplicar
+    const uniqueAnalyses = Array.from(new Map(analyses.map(a => [a.id, a])).values());
+
+    const totalAnalyses = uniqueAnalyses.length;
     
     // Calcular promedios y totales
     const completedAnalyses = analyses.filter(a => a.status === 'completed');

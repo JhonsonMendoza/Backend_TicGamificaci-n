@@ -258,8 +258,10 @@ export class AnalysisController {
   async getMyAnalyses(@Request() req, @Query('limit') limit?: string) {
     try {
       const userId = req.user.id;
+      const userEmail = req.user.email;
+      const userName = req.user.name;
       const limitNumber = limit ? parseInt(limit, 10) : 10;
-      const analyses = await this.analysisService.findByUserId(userId, limitNumber);
+      const analyses = await this.analysisService.findByUserId(userId, limitNumber, userEmail, userName);
       
       return {
         success: true,
@@ -281,7 +283,9 @@ export class AnalysisController {
   async getMySummary(@Request() req) {
     try {
       const userId = req.user.id;
-      const summary = await this.analysisService.getUserSummary(userId);
+      const userEmail = req.user.email;
+      const userName = req.user.name;
+      const summary = await this.analysisService.getUserSummary(userId, userEmail, userName);
       
       return {
         success: true,

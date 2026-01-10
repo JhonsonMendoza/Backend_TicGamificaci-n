@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 import { AnalysisRun } from '../../analysis/entities/analysis-run.entity';
+import { Achievement } from './achievement.entity';
 
 @Entity('users')
 export class User {
@@ -39,6 +40,10 @@ export class User {
   // Relación con análisis
   @OneToMany(() => AnalysisRun, (analysis) => analysis.user)
   analyses: AnalysisRun[];
+
+  // Relación con logros
+  @OneToMany(() => Achievement, (achievement) => achievement.user)
+  achievements: Achievement[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

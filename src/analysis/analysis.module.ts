@@ -8,9 +8,10 @@ import { ToolService } from './services/tool.service';
 import { Mission } from './entities/mission.entity';
 import { MissionsController } from './missions.controller';
 import { MissionsService } from './missions.service';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, AuthModule],
   controllers: [AnalysisController, MissionsController],
   providers: [AnalysisService, FileService, ToolService, MissionsService],
   exports: [AnalysisService, MissionsService],

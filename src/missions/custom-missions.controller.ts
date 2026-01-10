@@ -60,6 +60,30 @@ export class CustomMissionsController {
     };
   }
 
+  @Get('my/submissions')
+  @UseGuards(AuthGuard('jwt'))
+  async getMySubmissions(@Request() req) {
+    const userId = req.user.id;
+    const submissions = await this.submissionsService.findByUser(userId);
+
+    return {
+      success: true,
+      data: submissions,
+    };
+  }
+
+  @Get('my/stats')
+  @UseGuards(AuthGuard('jwt'))
+  async getMyStats(@Request() req) {
+    const userId = req.user.id;
+    const stats = await this.submissionsService.getUserStats(userId);
+
+    return {
+      success: true,
+      data: stats,
+    };
+  }
+
   @Get(':id')
   async getMissionById(@Param('id', ParseIntPipe) id: number) {
     const mission = await this.missionsService.findById(id);
@@ -112,30 +136,6 @@ export class CustomMissionsController {
     return {
       success: true,
       data: latestSubmission,
-    };
-  }
-
-  @Get('my/submissions')
-  @UseGuards(AuthGuard('jwt'))
-  async getMySubmissions(@Request() req) {
-    const userId = req.user.id;
-    const submissions = await this.submissionsService.findByUser(userId);
-
-    return {
-      success: true,
-      data: submissions,
-    };
-  }
-
-  @Get('my/stats')
-  @UseGuards(AuthGuard('jwt'))
-  async getMyStats(@Request() req) {
-    const userId = req.user.id;
-    const stats = await this.submissionsService.getUserStats(userId);
-
-    return {
-      success: true,
-      data: stats,
     };
   }
 

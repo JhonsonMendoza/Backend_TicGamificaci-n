@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { User } from './entities/user.entity';
 import { RegisterDto, LoginDto, UpdateProfileDto, UserResponseDto } from './dto/auth.dto';
+import { AchievementsService } from './services/achievements.service';
 
 @Injectable()
 export class AuthService {
@@ -12,6 +13,7 @@ export class AuthService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private jwtService: JwtService,
+    private achievementsService: AchievementsService,
   ) {}
 
   async register(registerDto: RegisterDto): Promise<{ user: UserResponseDto; token: string }> {
@@ -38,6 +40,9 @@ export class AuthService {
     });
 
     const savedUser = await this.userRepository.save(user);
+
+    // Inicializar logros para el nuevo usuario
+    await this.achievementsService.initializeAchievementsForUser(savedUser);
 
     // Generar token JWT
     const token = this.generateJwtToken(savedUser);
@@ -117,6 +122,12 @@ export class AuthService {
         user.emailVerified = true;
         await this.userRepository.save(user);
       }
+      
+      // Inicializar logros si el usuario no los tiene
+      const existingAchievements = await this.achievementsService.getAchievementsByUserId(user.id);
+      if (existingAchievements.length === 0) {
+        await this.achievementsService.initializeAchievementsForUser(user);
+      }
     } else {
       // Crear nuevo usuario con Google
       user = this.userRepository.create({
@@ -129,6 +140,15 @@ export class AuthService {
       });
 
       user = await this.userRepository.save(user);
+      
+      // Inicializar logros para el nuevo usuario
+      await this.achievementsService.initializeAchievementsForUser(user);
+      
+      // Recargar el usuario para obtener todas las relaciones
+      user = await this.userRepository.findOne({
+        where: { id: user.id },
+        relations: ['analyses']
+      });
     }
 
     const token = this.generateJwtToken(user);
@@ -202,6 +222,18 @@ export class AuthService {
     });
   }
 
+  generateTokenForUser(userId: number, email: string, name: string): string {
+    const payload = { 
+      sub: userId, 
+      email,
+      name
+    };
+    
+    return this.jwtService.sign(payload, {
+      expiresIn: '7d', // Token válido por 7 días
+    });
+  }
+
   private toUserResponse(user: User): UserResponseDto {
     return {
       id: user.id,
@@ -217,5 +249,9 @@ export class AuthService {
       averageScore: user.getAverageScore(),
       totalIssuesFound: user.getTotalIssuesFound(),
     };
+  }
+
+  toUserResponsePublic(user: User): UserResponseDto {
+    return this.toUserResponse(user);
   }
 }

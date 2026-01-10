@@ -26,14 +26,26 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   ): Promise<any> {
     const { id, name, emails, photos } = profile;
     
-    const user = {
+    const googleUser = {
       googleId: id,
-      email: emails[0].value,
-      name: `${name.givenName} ${name.familyName}`,
-      profilePicture: photos[0]?.value,
+      email: emails?.[0]?.value || '',
+      name: `${name?.givenName || ''} ${name?.familyName || ''}`.trim(),
+      profilePicture: photos?.[0]?.value,
     };
 
-    const validatedUser = await this.authService.googleLogin(user);
-    done(null, validatedUser);
+    try {
+      // googleLogin retorna { user: UserResponseDto, token: string }
+      // Pero Passport necesita el usuario en el formato que verá req.user
+      // Por eso, también necesito devolver el usuario de la BD
+      const result = await this.authService.googleLogin(googleUser);
+      
+      // Necesito obtener el usuario completo de la BD para que req.user sea correcto
+      const fullUser = await this.authService.findById(result.user.id);
+      
+      // Devolver el usuario completo para que esté disponible en req.user
+      done(null, fullUser);
+    } catch (error) {
+      done(error);
+    }
   }
 }

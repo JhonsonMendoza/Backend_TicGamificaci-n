@@ -8,7 +8,8 @@ import {
   Patch,
   HttpCode,
   HttpStatus,
-  Res
+  Res,
+  NotFoundException
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
@@ -19,14 +20,38 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('register')
-  async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
+  async register(@Body() registerDto: RegisterDto, @Res() res) {
+    const result = await this.authService.register(registerDto);
+    
+    // Establecer la cookie con el token
+    res.cookie('auth_token', result.token, {
+      httpOnly: true,
+      secure: false, // En desarrollo, false; en producción, true
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+      path: '/',
+    });
+    
+    // Devolver la respuesta con el token también en JSON (para compatibilidad)
+    return res.json(result);
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(@Body() loginDto: LoginDto, @Res() res) {
+    const result = await this.authService.login(loginDto);
+    
+    // Establecer la cookie con el token
+    res.cookie('auth_token', result.token, {
+      httpOnly: true,
+      secure: false, // En desarrollo, false; en producción, true
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+      path: '/',
+    });
+    
+    // Devolver la respuesta con el token también en JSON (para compatibilidad)
+    return res.json(result);
   }
 
   @Get('google')
@@ -39,11 +64,28 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   async googleAuthRedirect(@Request() req, @Res() res) {
     try {
-      // Manejar el callback de Google
-      const result = await this.authService.googleLogin(req.user);
+      // req.user es la entidad User completa retornada por GoogleStrategy
+      const user = req.user;
       
-      // Redirigir al frontend con el token
-      const redirectUrl = `http://localhost:3000/auth/callback?token=${result.token}`;
+      if (!user || !user.id) {
+        const errorUrl = `http://localhost:3000/auth/callback?error=authentication_failed`;
+        return res.redirect(errorUrl);
+      }
+      
+      // Generar el token usando el usuario de la BD
+      const token = this.authService.generateTokenForUser(user.id, user.email, user.name);
+      
+      // Establecer la cookie con el token
+      res.cookie('auth_token', token, {
+        httpOnly: true,
+        secure: false, // En desarrollo, false; en producción, true
+        sameSite: 'lax', // Permite el redirect desde Google
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+        path: '/',
+      });
+      
+      // Redirigir al frontend con el token también en URL (para compatibilidad)
+      const redirectUrl = `http://localhost:3000/auth/callback?token=${token}`;
       return res.redirect(redirectUrl);
     } catch (error) {
       // En caso de error, redirigir con mensaje de error
@@ -71,7 +113,11 @@ export class AuthController {
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
   async getCurrentUser(@Request() req) {
-    return this.authService.findById(req.user.id);
+    const user = await this.authService.findById(req.user.id);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    return user;
   }
 
   @Get('stats')

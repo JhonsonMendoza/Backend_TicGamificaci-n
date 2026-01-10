@@ -38,13 +38,25 @@ export class MissionsService {
     return created;
   }
 
-  async findByUserId(userId: number): Promise<Mission[]> {
-    // Buscar misiones relacionadas a análisis del usuario
-    const analyses = await this.analysisRepository.find({ where: { userId } });
+  async findByUserId(userId: number, userEmail?: string, userName?: string): Promise<Mission[]> {
+    const { In } = require('typeorm');
+    
+    // Buscar análisis por userId (análisis nuevos)
+    let analyses = await this.analysisRepository.find({ where: { userId } });
+    
+    // Si no hay análisis con userId, buscar por email en el campo student (análisis antiguos)
+    if (analyses.length === 0 && userEmail) {
+      analyses = await this.analysisRepository.find({ where: { student: userEmail } });
+    }
+    
+    // Si aún no hay análisis, intentar por nombre del usuario (análisis muy antiguos)
+    if (analyses.length === 0 && userName) {
+      analyses = await this.analysisRepository.find({ where: { student: userName } });
+    }
+    
     const ids = analyses.map(a => a.id);
     if (ids.length === 0) return [];
-    // Usar In(...) para búsqueda por lista
-    const { In } = require('typeorm');
+    
     return this.missionRepository.find({ where: { analysisRunId: In(ids) }, order: { createdAt: 'DESC' } });
   }
 
