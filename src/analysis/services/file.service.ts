@@ -4,6 +4,10 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import * as unzipper from 'unzipper';
 import { v4 as uuidv4 } from 'uuid';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 @Injectable()
 export class FileService {
@@ -21,6 +25,14 @@ export class FileService {
 
   async saveAndExtractFile(fileBuffer: Buffer, originalName: string): Promise<string> {
     this.logger.log(`=== [INICIO] SAVING FILE: ${originalName} (${fileBuffer.length} bytes) ===`);
+    
+    // Validar que no sea archivo .rar
+    const ext = path.extname(originalName).toLowerCase();
+    if (ext === '.rar') {
+      const error = 'Los archivos .rar no están soportados. Por favor usa archivos .zip';
+      this.logger.error(`[ERROR] ${error}`);
+      throw new Error(error);
+    }
     
     try {
       this.logger.log(`[PASO 1] Verificando directorio uploads...`);
@@ -67,7 +79,7 @@ export class FileService {
 
   private isCompressedFile(filename: string): boolean {
     const ext = path.extname(filename).toLowerCase();
-    return ['.zip', '.rar', '.7z', '.tar', '.tar.gz'].includes(ext);
+    return ['.zip', '.7z', '.tar', '.tar.gz'].includes(ext);
   }
 
   private async extractFile(filePath: string, extractDir: string): Promise<void> {
@@ -79,10 +91,6 @@ export class FileService {
         this.logger.log(`[EXTRACT ZIP] Iniciando extracción ZIP de: ${filePath}`);
         await this.extractZipFile(filePath, extractDir);
         this.logger.log(`[EXTRACT ZIP] Completado exitosamente`);
-      } else if (ext === '.rar') {
-        this.logger.log(`[EXTRACT RAR] Iniciando extracción RAR de: ${filePath}`);
-        await this.handleRarFile(filePath, extractDir);
-        this.logger.log(`[EXTRACT RAR] Completado exitosamente`);
       } else {
         this.logger.warn(`[EXTRACT] Tipo de archivo ${ext} no requiere extracción o no está soportado`);
       }
@@ -105,48 +113,6 @@ export class FileService {
     } catch (error) {
       this.logger.error(`Error extrayendo ZIP: ${error.message}`);
       throw error;
-    }
-  }
-
-  private async handleRarFile(rarPath: string, extractDir: string): Promise<void> {
-    // Método 1: Intentar con PowerShell y Expand-Archive (solo funciona con algunos RAR)
-    try {
-      await this.extractRarWithPowerShell(rarPath, extractDir);
-      return;
-    } catch (error) {
-      this.logger.warn(`PowerShell falló: ${error.message}`);
-    }
-
-    // Método 2: Si falla, crear una carpeta y mover el RAR allí para análisis manual
-    this.logger.warn('No se pudo extraer automáticamente el archivo RAR. Guardando para análisis manual.');
-    const rarDir = path.join(extractDir, 'rar-content');
-    await fs.mkdir(rarDir, { recursive: true });
-    
-    // Crear un archivo README explicando el problema
-    const readmePath = path.join(rarDir, 'README.txt');
-    const readmeContent = `Este directorio contiene un archivo RAR que no pudo ser extraído automáticamente.
-Para análisis completo, extrae manualmente el archivo RAR y coloca el contenido aquí.
-Archivo RAR: ${path.basename(rarPath)}
-Fecha: ${new Date().toISOString()}`;
-    
-    await fs.writeFile(readmePath, readmeContent);
-    
-    // El análisis continuará pero con funcionalidad limitada
-  }
-
-  private async extractRarWithPowerShell(rarPath: string, extractDir: string): Promise<void> {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-
-    // Intentar con Expand-Archive (funciona con algunos RAR que son realmente ZIP)
-    const command = `Expand-Archive -Path "${rarPath}" -DestinationPath "${extractDir}" -Force`;
-    
-    try {
-      await execAsync(command, { timeout: 30000 });
-      this.logger.log('Archivo RAR extraído con PowerShell');
-    } catch (error) {
-      throw new Error(`PowerShell no pudo extraer el RAR: ${error.message}`);
     }
   }
 
@@ -202,6 +168,59 @@ Fecha: ${new Date().toISOString()}`;
     } catch (error) {
       this.logger.error(`Error leyendo archivo ${filePath}: ${error.message}`);
       throw new Error(`No se pudo leer el archivo: ${error.message}`);
+    }
+  }
+
+  async cloneRepository(repositoryUrl: string, analysisId: string): Promise<string> {
+    this.logger.log(`🔄 Iniciando clonación de repositorio: ${repositoryUrl}`);
+    
+    try {
+      // Crear directorio para el repositorio clonado
+      await this.ensureUploadsDir();
+      
+      const cloneDir = path.join(this.uploadsDir, `repo_${analysisId}`);
+      
+      // Verificar que el directorio no exista
+      try {
+        await fs.access(cloneDir);
+        // Si existe, eliminarlo
+        await fs.rm(cloneDir, { recursive: true, force: true });
+      } catch {
+        // No existe, es lo que queremos
+      }
+      
+      // Crear directorio
+      await fs.mkdir(cloneDir, { recursive: true });
+      this.logger.log(`📁 Directorio creado: ${cloneDir}`);
+
+      // Ejecutar git clone con timeout
+      const gitCommand = `git clone --depth 1 "${repositoryUrl}" "${cloneDir}"`;
+      this.logger.log(`⏳ Ejecutando comando git: ${gitCommand}`);
+      
+      try {
+        await execAsync(gitCommand, { 
+          timeout: 60000, // 60 segundos max
+          maxBuffer: 5 * 1024 * 1024 
+        });
+        this.logger.log(`✅ Repositorio clonado exitosamente`);
+      } catch (execError: any) {
+        this.logger.error(`❌ Error ejecutando git: ${execError.message}`);
+        
+        // Limpiar el directorio en caso de error
+        try {
+          await fs.rm(cloneDir, { recursive: true, force: true });
+        } catch {
+          // Ignorar error de limpieza
+        }
+        
+        throw new Error(`No se pudo clonar el repositorio: ${execError.message}`);
+      }
+
+      return cloneDir;
+      
+    } catch (error) {
+      this.logger.error(`🔴 Error en cloneRepository: ${error.message}`);
+      throw error;
     }
   }
 }

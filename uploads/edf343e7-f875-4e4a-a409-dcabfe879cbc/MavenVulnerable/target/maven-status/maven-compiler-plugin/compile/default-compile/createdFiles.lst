@@ -1,0 +1,4 @@
+com\example\SecurityIssues.class
+com\example\BuggyProgram.class
+com\example\PerformanceIssues.class
+com\example\SecurityIssues$MySerializable.class

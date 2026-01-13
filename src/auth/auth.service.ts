@@ -57,8 +57,7 @@ export class AuthService {
     const { email, password } = loginDto;
 
     const user = await this.userRepository.findOne({ 
-      where: { email },
-      relations: ['analyses']
+      where: { email }
     });
 
     if (!user || !user.password) {
@@ -72,6 +71,11 @@ export class AuthService {
 
     if (!user.isActive) {
       throw new UnauthorizedException('Cuenta desactivada');
+    }
+
+    // Inicializar analyses vacío si no existe
+    if (!user.analyses) {
+      user.analyses = [];
     }
 
     const token = this.generateJwtToken(user);
@@ -105,13 +109,12 @@ export class AuthService {
   }): Promise<{ user: UserResponseDto; token: string }> {
     const { googleId, email, name, profilePicture } = googleUser;
 
-    // Buscar usuario existente por Google ID o email
+    // Buscar usuario existente por Google ID o email (sin cargar relaciones para evitar problemas con TypeORM)
     let user = await this.userRepository.findOne({
       where: [
         { googleId },
         { email }
-      ],
-      relations: ['analyses']
+      ]
     });
 
     if (user) {
@@ -128,6 +131,9 @@ export class AuthService {
       if (existingAchievements.length === 0) {
         await this.achievementsService.initializeAchievementsForUser(user);
       }
+      
+      // Cargar análisis del usuario para cálculos en toUserResponse
+      user.analyses = [];
     } else {
       // Crear nuevo usuario con Google
       user = this.userRepository.create({
@@ -144,11 +150,8 @@ export class AuthService {
       // Inicializar logros para el nuevo usuario
       await this.achievementsService.initializeAchievementsForUser(user);
       
-      // Recargar el usuario para obtener todas las relaciones
-      user = await this.userRepository.findOne({
-        where: { id: user.id },
-        relations: ['analyses']
-      });
+      // Cargar análisis del usuario para toUserResponse
+      user.analyses = [];
     }
 
     const token = this.generateJwtToken(user);
@@ -160,10 +163,15 @@ export class AuthService {
   }
 
   async findById(id: number): Promise<User | null> {
-    return this.userRepository.findOne({ 
-      where: { id },
-      relations: ['analyses']
+    const user = await this.userRepository.findOne({ 
+      where: { id }
     });
+    
+    if (user && !user.analyses) {
+      user.analyses = [];
+    }
+    
+    return user;
   }
 
   async updateProfile(userId: number, updateDto: UpdateProfileDto): Promise<UserResponseDto> {
@@ -185,12 +193,16 @@ export class AuthService {
     recentAnalyses: any[];
   }> {
     const user = await this.userRepository.findOne({
-      where: { id: userId },
-      relations: ['analyses'],
+      where: { id: userId }
     });
 
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
+    }
+
+    // Si no hay análisis, inicializar como array vacío
+    if (!user.analyses) {
+      user.analyses = [];
     }
 
     const totalAnalyses = user.getTotalAnalyses();

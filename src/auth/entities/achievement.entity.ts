@@ -50,7 +50,7 @@ export class Achievement {
   @Column({ type: 'varchar', length: 50, default: 'badge' })
   icon: string; // 'badge', 'star', 'trophy', 'flame', etc.
 
-  @Column({ type: 'integer', name: 'points_reward' })
+  @Column({ type: 'integer', name: 'points_reward', nullable: true })
   pointsReward: number; // Puntos que otorga al desbloquear
 
   @Column({ type: 'text' })

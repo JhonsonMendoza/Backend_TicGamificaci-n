@@ -8,7 +8,7 @@ export class AnalysisRun {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 500, name: 'project_path' })
+  @Column({ type: 'varchar', length: 500, name: 'project_path', nullable: true })
   projectPath: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })

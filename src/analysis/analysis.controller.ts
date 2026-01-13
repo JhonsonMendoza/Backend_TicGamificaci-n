@@ -12,15 +12,21 @@ import {
   Delete,
   UseGuards,
   Request,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { AnalysisService } from './analysis.service';
+import { MissionsService } from './missions.service';
 
 @Controller('analysis')
 export class AnalysisController {
+  private readonly logger = new Logger(AnalysisController.name);
   
-  constructor(private readonly analysisService: AnalysisService) {}
+  constructor(
+    private readonly analysisService: AnalysisService,
+    private readonly missionsService: MissionsService
+  ) {}
   
   @Get('health')
   getHealth() {
@@ -147,6 +153,47 @@ export class AnalysisController {
     }
   }
 
+  @Post('clone-repo')
+  @UseGuards(AuthGuard('jwt'))
+  async cloneAndAnalyzeRepository(
+    @Request() req,
+    @Body() body: { repositoryUrl: string; student?: string }
+  ) {
+    this.logger.log('📦 Solicitud de clonación de repositorio recibida');
+    this.logger.log(`   URL: ${body.repositoryUrl}`);
+    this.logger.log(`   Usuario: ${req.user?.email}`);
+
+    if (!body.repositoryUrl) {
+      throw new BadRequestException('La URL del repositorio es requerida');
+    }
+
+    const studentName = body.student || req.user?.name || req.user?.email || `Usuario_${req.user?.id}`;
+
+    try {
+      this.logger.log('⏳ Iniciando clonación del repositorio...');
+      const result = await this.analysisService.cloneAndAnalyzeRepository(
+        body.repositoryUrl,
+        studentName,
+        req.user.id
+      );
+
+      this.logger.log('✅ Análisis completado exitosamente');
+      return {
+        success: true,
+        message: 'Repositorio clonado y analizado correctamente',
+        data: result,
+        user: {
+          id: req.user.id,
+          name: req.user.name,
+          email: req.user.email
+        }
+      };
+    } catch (error) {
+      this.logger.error(`❌ Error durante análisis de repo: ${error.message}`);
+      throw new BadRequestException(`Error al clonar/analizar repositorio: ${error.message}`);
+    }
+  }
+
   @Get('demo-data')
   async getDemoData() {
     // Datos demo mejorados para desarrollo
@@ -198,16 +245,100 @@ export class AnalysisController {
   }
 
   @Get(':id')
-  async getAnalysisById(@Param('id', ParseIntPipe) id: number) {
-    try {
-      const analysis = await this.analysisService.findById(id);
-      return {
-        success: true,
-        data: analysis
-      };
-    } catch (error) {
-      throw new BadRequestException(error.message);
+  async getAnalysis(@Param('id', ParseIntPipe) id: number) {
+    const analysis = await this.analysisService.findById(id);
+    
+    // Logging detallado para debug
+    this.logger.log(`📋 [GET /:id] Análisis ${id} solicitado`);
+    this.logger.log(`  ├─ Estado: ${analysis.status}`);
+    this.logger.log(`  ├─ Problemas totales: ${analysis.totalIssues}`);
+    this.logger.log(`  ├─ Altos: ${analysis.highSeverityIssues}`);
+    this.logger.log(`  ├─ Medios: ${analysis.mediumSeverityIssues}`);
+    this.logger.log(`  ├─ Bajos: ${analysis.lowSeverityIssues}`);
+    
+    if (analysis.findings && analysis.findings.results) {
+      Object.keys(analysis.findings.results).forEach(tool => {
+        const count = analysis.findings.results[tool].findingsCount || 0;
+        this.logger.log(`  ├─ ${tool}: ${count} hallazgos`);
+      });
     }
+    
+    return {
+      success: true,
+      data: analysis
+    };
+  }
+
+  /**
+   * ENDPOINT DEBUG: Ver todas las misiones de un análisis
+   */
+  @Get(':id/missions-debug')
+  async getAnalysisMissionsDebug(@Param('id', ParseIntPipe) id: number) {
+    const analysis = await this.analysisService.findById(id);
+    const missions = await this.missionsService.findByAnalysisId(id);
+    
+    this.logger.log(`🔍 [DEBUG MISSIONS] Análisis ${id}`);
+    this.logger.log(`  Total misiones en BD: ${missions.length}`);
+    
+    // Información de findings almacenados
+    this.logger.log(`📊 Findings almacenados en análisis:`);
+    if (analysis.findings && analysis.findings.results) {
+      Object.keys(analysis.findings.results).forEach(tool => {
+        const count = analysis.findings.results[tool].findingsCount || 0;
+        this.logger.log(`  ${tool}: ${count} hallazgos`);
+      });
+    }
+    
+    const groupedByTool: { [key: string]: any[] } = {};
+    const groupedBySeverity: { [key: string]: any[] } = {};
+    
+    missions.forEach(m => {
+      const tool = m.metadata?.tool || 'unknown';
+      const severity = m.severity || 'unknown';
+      
+      if (!groupedByTool[tool]) groupedByTool[tool] = [];
+      if (!groupedBySeverity[severity]) groupedBySeverity[severity] = [];
+      
+      groupedByTool[tool].push(m);
+      groupedBySeverity[severity].push(m);
+    });
+    
+    this.logger.log(`  Por herramienta (misiones):`);
+    Object.keys(groupedByTool).forEach(tool => {
+      this.logger.log(`    ${tool}: ${groupedByTool[tool].length}`);
+    });
+    
+    this.logger.log(`  Por severidad:`);
+    Object.keys(groupedBySeverity).forEach(sev => {
+      this.logger.log(`    ${sev}: ${groupedBySeverity[sev].length}`);
+    });
+    
+    return {
+      success: true,
+      data: {
+        analysisId: id,
+        status: analysis.status,
+        totalMissions: missions.length,
+        storedFindings: analysis.findings?.results || {},
+        missions: missions.map(m => ({
+          id: m.id,
+          title: m.title,
+          severity: m.severity,
+          filePath: m.filePath,
+          lineStart: m.lineStart,
+          tool: m.metadata?.tool || 'unknown',
+          status: m.status
+        })),
+        groupedByTool: Object.keys(groupedByTool).reduce((acc, tool) => {
+          acc[tool] = groupedByTool[tool].length;
+          return acc;
+        }, {} as any),
+        groupedBySeverity: Object.keys(groupedBySeverity).reduce((acc, sev) => {
+          acc[sev] = groupedBySeverity[sev].length;
+          return acc;
+        }, {} as any)
+      }
+    };
   }
 
   @Get()

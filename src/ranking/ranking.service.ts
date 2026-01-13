@@ -47,14 +47,19 @@ export class RankingService {
   }> {
     console.log('=== Getting global rankings ===');
     
-    // Obtener usuarios con sus análisis
+    // Obtener usuarios sin cargar relaciones de una vez (para evitar problemas con TypeORM)
     const users = await this.userRepository.find({
-      relations: ['analyses'],
       where: { isActive: true },
     });
     
     console.log('Total users found:', users.length);
-    console.log('Users with analyses:', users.filter(u => u.analyses?.length > 0).length);
+    
+    // Inicializar análisis vacíos para cálculos
+    users.forEach(u => {
+      if (!u.analyses) {
+        u.analyses = [];
+      }
+    });
 
     // Calcular estadísticas para cada usuario
     const userStats = users
@@ -98,8 +103,14 @@ export class RankingService {
     totalUsers: number;
   }> {
     const allUsers = await this.userRepository.find({
-      relations: ['analyses'],
       where: { isActive: true },
+    });
+    
+    // Inicializar analyses vacío para cálculos
+    allUsers.forEach(u => {
+      if (!u.analyses) {
+        u.analyses = [];
+      }
     });
 
     const sortedUsers = allUsers
@@ -144,11 +155,17 @@ export class RankingService {
 
   async getUniversityRankings(university: string): Promise<RankingUser[]> {
     const users = await this.userRepository.find({
-      relations: ['analyses'],
       where: { 
         isActive: true,
         university: university,
       },
+    });
+    
+    // Inicializar analyses vacío para cálculos
+    users.forEach(u => {
+      if (!u.analyses) {
+        u.analyses = [];
+      }
     });
 
     return users
@@ -178,11 +195,17 @@ export class RankingService {
 
   async getCareerRankings(career: string): Promise<RankingUser[]> {
     const users = await this.userRepository.find({
-      relations: ['analyses'],
       where: { 
         isActive: true,
         career: career,
       },
+    });
+    
+    // Inicializar analyses vacío para cálculos
+    users.forEach(u => {
+      if (!u.analyses) {
+        u.analyses = [];
+      }
     });
 
     return users

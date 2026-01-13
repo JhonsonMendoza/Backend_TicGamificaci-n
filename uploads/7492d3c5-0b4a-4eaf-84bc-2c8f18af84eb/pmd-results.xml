@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pmd xmlns="http://pmd.sourceforge.net/report/2.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://pmd.sourceforge.net/report/2.0.0 https://pmd.github.io/schema/report_2_0_0.xsd" version="7.20.0" timestamp="2026-01-13T01:01:59.244">
+<file name="C:\Users\JHONSON\Desktop\TESIS\backend\uploads\7492d3c5-0b4a-4eaf-84bc-2c8f18af84eb\MavenVulnerable\src\main\java\com\example\BuggyProgram.java">
+<violation beginline="5" endline="5" begincolumn="8" endcolumn="13" rule="AtLeastOneConstructor" ruleset="Code Style" package="com.example" class="BuggyProgram" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#atleastoneconstructor" priority="3">
+Each class should declare at least one constructor
+</violation>
+<violation beginline="8" endline="8" begincolumn="22" endcolumn="24" rule="ShortVariable" ruleset="Code Style" package="com.example" class="BuggyProgram" method="main" variable="bp" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#shortvariable" priority="3">
+Avoid variables with short names like bp
+</violation>
+<violation beginline="8" endline="8" begincolumn="22" endcolumn="24" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="BuggyProgram" method="main" variable="bp" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'bp' could be declared final
+</violation>
+<violation beginline="19" endline="19" begincolumn="16" endcolumn="19" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="BuggyProgram" method="nullPointerBug" variable="str" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'str' could be declared final
+</violation>
+<violation beginline="20" endline="20" begincolumn="9" endcolumn="15" rule="SystemPrintln" ruleset="Best Practices" package="com.example" class="BuggyProgram" method="nullPointerBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#systemprintln" priority="2">
+Usage of System.out/err
+</violation>
+<violation beginline="25" endline="25" begincolumn="25" endcolumn="28" rule="CloseResource" ruleset="Error Prone" package="com.example" class="BuggyProgram" method="resourceLeakBug" variable="fis" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#closeresource" priority="3">
+Ensure that resources like this FileInputStream object are closed after use
+</violation>
+<violation beginline="25" endline="25" begincolumn="25" endcolumn="28" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="BuggyProgram" method="resourceLeakBug" variable="fis" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'fis' could be declared final
+</violation>
+<violation beginline="25" endline="25" begincolumn="35" endcolumn="50" rule="AvoidFileStream" ruleset="Performance" package="com.example" class="BuggyProgram" method="resourceLeakBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_performance.html#avoidfilestream" priority="1">
+Avoid instantiating FileInputStream, FileOutputStream, FileReader, or FileWriter
+</violation>
+<violation beginline="26" endline="26" begincolumn="16" endcolumn="20" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="BuggyProgram" method="resourceLeakBug" variable="data" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'data' could be declared final
+</violation>
+<violation beginline="33" endline="33" begincolumn="16" endcolumn="17" rule="ShortVariable" ruleset="Code Style" package="com.example" class="BuggyProgram" method="comparisonBug" variable="a" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#shortvariable" priority="3">
+Avoid variables with short names like a
+</violation>
+<violation beginline="33" endline="33" begincolumn="16" endcolumn="17" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="BuggyProgram" method="comparisonBug" variable="a" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'a' could be declared final
+</violation>
+<violation beginline="33" endline="33" begincolumn="20" endcolumn="39" rule="StringInstantiation" ruleset="Performance" package="com.example" class="BuggyProgram" method="comparisonBug" variable="a" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_performance.html#stringinstantiation" priority="2">
+Avoid instantiating String objects; this is usually unnecessary.
+</violation>
+<violation beginline="34" endline="34" begincolumn="16" endcolumn="17" rule="ShortVariable" ruleset="Code Style" package="com.example" class="BuggyProgram" method="comparisonBug" variable="b" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#shortvariable" priority="3">
+Avoid variables with short names like b
+</violation>
+<violation beginline="34" endline="34" begincolumn="16" endcolumn="17" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="BuggyProgram" method="comparisonBug" variable="b" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'b' could be declared final
+</violation>
+<violation beginline="34" endline="34" begincolumn="20" endcolumn="39" rule="StringInstantiation" ruleset="Performance" package="com.example" class="BuggyProgram" method="comparisonBug" variable="b" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_performance.html#stringinstantiation" priority="2">
+Avoid instantiating String objects; this is usually unnecessary.
+</violation>
+<violation beginline="35" endline="35" begincolumn="13" endcolumn="19" rule="CompareObjectsWithEquals" ruleset="Error Prone" package="com.example" class="BuggyProgram" method="comparisonBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#compareobjectswithequals" priority="3">
+Use equals() to compare object references.
+</violation>
+<violation beginline="35" endline="35" begincolumn="13" endcolumn="19" rule="UseEqualsToCompareStrings" ruleset="Error Prone" package="com.example" class="BuggyProgram" method="comparisonBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#useequalstocomparestrings" priority="3">
+Use equals() to compare strings instead of '==' or '!='
+</violation>
+<violation beginline="36" endline="36" begincolumn="13" endcolumn="19" rule="SystemPrintln" ruleset="Best Practices" package="com.example" class="BuggyProgram" method="comparisonBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#systemprintln" priority="2">
+Usage of System.out/err
+</violation>
+<violation beginline="42" endline="42" begincolumn="13" endcolumn="14" rule="ShortVariable" ruleset="Code Style" package="com.example" class="BuggyProgram" method="infiniteLoopBug" variable="i" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#shortvariable" priority="3">
+Avoid variables with short names like i
+</violation>
+<violation beginline="45" endline="45" begincolumn="21" endcolumn="24" rule="AvoidLiteralsInIfCondition" ruleset="Error Prone" package="com.example" class="BuggyProgram" method="infiniteLoopBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#avoidliteralsinifcondition" priority="3">
+Avoid using literals such as 100 in if statements
+</violation>
+<violation beginline="45" endline="45" begincolumn="26" endcolumn="32" rule="ControlStatementBraces" ruleset="Code Style" package="com.example" class="BuggyProgram" method="infiniteLoopBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#controlstatementbraces" priority="3">
+This statement should have braces
+</violation>
+<violation beginline="51" endline="51" begincolumn="13" endcolumn="14" rule="ShortVariable" ruleset="Code Style" package="com.example" class="BuggyProgram" method="deadCodeBug" variable="x" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#shortvariable" priority="3">
+Avoid variables with short names like x
+</violation>
+<violation beginline="51" endline="51" begincolumn="13" endcolumn="14" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="BuggyProgram" method="deadCodeBug" variable="x" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'x' could be declared final
+</violation>
+<violation beginline="52" endline="52" begincolumn="17" endcolumn="18" rule="AvoidLiteralsInIfCondition" ruleset="Error Prone" package="com.example" class="BuggyProgram" method="deadCodeBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#avoidliteralsinifcondition" priority="3">
+Avoid using literals such as 5 in if statements
+</violation>
+<violation beginline="53" endline="53" begincolumn="13" endcolumn="19" rule="SystemPrintln" ruleset="Best Practices" package="com.example" class="BuggyProgram" method="deadCodeBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#systemprintln" priority="2">
+Usage of System.out/err
+</violation>
+<violation beginline="55" endline="55" begincolumn="13" endcolumn="20" rule="UnnecessaryReturn" ruleset="Code Style" package="com.example" class="BuggyProgram" method="deadCodeBug" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#unnecessaryreturn" priority="3">
+Unnecessary return statement
+</violation>
+<violation beginline="61" endline="61" begincolumn="20" endcolumn="33" rule="FieldDeclarationsShouldBeAtStartOfClass" ruleset="Code Style" package="com.example" class="BuggyProgram" variable="uninitialized" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#fielddeclarationsshouldbeatstartofclass" priority="3">
+Fields should be declared at the top of the class, before any method declarations, constructors, initializers or inner classes.
+</violation>
+<violation beginline="64" endline="64" begincolumn="16" endcolumn="43" rule="UseLocaleWithCaseConversions" ruleset="Error Prone" package="com.example" class="BuggyProgram" method="getUninitialized" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#uselocalewithcaseconversions" priority="3">
+When doing a String.toLowerCase()/toUpperCase() call, use a Locale
+</violation>
+</file>
+<file name="C:\Users\JHONSON\Desktop\TESIS\backend\uploads\7492d3c5-0b4a-4eaf-84bc-2c8f18af84eb\MavenVulnerable\src\main\java\com\example\PerformanceIssues.java">
+<violation beginline="5" endline="5" begincolumn="8" endcolumn="13" rule="AtLeastOneConstructor" ruleset="Code Style" package="com.example" class="PerformanceIssues" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#atleastoneconstructor" priority="3">
+Each class should declare at least one constructor
+</violation>
+<violation beginline="13" endline="13" begincolumn="53" endcolumn="56" rule="MethodArgumentCouldBeFinal" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="inefficientLoop" variable="map" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#methodargumentcouldbefinal" priority="3">
+Parameter 'map' is not assigned and could be declared final
+</violation>
+<violation beginline="14" endline="14" begincolumn="21" endcolumn="24" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="inefficientLoop" variable="key" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'key' could be declared final
+</violation>
+<violation beginline="15" endline="15" begincolumn="20" endcolumn="25" rule="UnusedLocalVariable" ruleset="Best Practices" package="com.example" class="PerformanceIssues" method="inefficientLoop" variable="value" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#unusedlocalvariable" priority="3">
+Avoid unused local variables such as 'value'.
+</violation>
+<violation beginline="21" endline="21" begincolumn="18" endcolumn="25" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="arrayCast" variable="objects" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'objects' could be declared final
+</violation>
+<violation beginline="22" endline="22" begincolumn="18" endcolumn="25" rule="UnusedLocalVariable" ruleset="Best Practices" package="com.example" class="PerformanceIssues" method="arrayCast" variable="strings" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#unusedlocalvariable" priority="3">
+Avoid unused local variables such as 'strings'.
+</violation>
+<violation beginline="27" endline="27" begincolumn="17" endcolumn="19" rule="ShortVariable" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="boxedEquality" variable="i1" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#shortvariable" priority="3">
+Avoid variables with short names like i1
+</violation>
+<violation beginline="27" endline="27" begincolumn="17" endcolumn="19" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="boxedEquality" variable="i1" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'i1' could be declared final
+</violation>
+<violation beginline="27" endline="27" begincolumn="22" endcolumn="38" rule="PrimitiveWrapperInstantiation" ruleset="Best Practices" package="com.example" class="PerformanceIssues" method="boxedEquality" variable="i1" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#primitivewrapperinstantiation" priority="3">
+Do not use `new Integer(...)`, prefer `Integer.valueOf(...)`
+</violation>
+<violation beginline="27" endline="27" begincolumn="22" endcolumn="38" rule="UnnecessaryBoxing" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="boxedEquality" variable="i1" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#unnecessaryboxing" priority="3">
+Unnecessary explicit boxing
+</violation>
+<violation beginline="28" endline="28" begincolumn="17" endcolumn="19" rule="ShortVariable" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="boxedEquality" variable="i2" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#shortvariable" priority="3">
+Avoid variables with short names like i2
+</violation>
+<violation beginline="28" endline="28" begincolumn="17" endcolumn="19" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="boxedEquality" variable="i2" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'i2' could be declared final
+</violation>
+<violation beginline="28" endline="28" begincolumn="22" endcolumn="38" rule="PrimitiveWrapperInstantiation" ruleset="Best Practices" package="com.example" class="PerformanceIssues" method="boxedEquality" variable="i2" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#primitivewrapperinstantiation" priority="3">
+Do not use `new Integer(...)`, prefer `Integer.valueOf(...)`
+</violation>
+<violation beginline="28" endline="28" begincolumn="22" endcolumn="38" rule="UnnecessaryBoxing" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="boxedEquality" variable="i2" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#unnecessaryboxing" priority="3">
+Unnecessary explicit boxing
+</violation>
+<violation beginline="29" endline="29" begincolumn="13" endcolumn="21" rule="CompareObjectsWithEquals" ruleset="Error Prone" package="com.example" class="PerformanceIssues" method="boxedEquality" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#compareobjectswithequals" priority="3">
+Use equals() to compare object references.
+</violation>
+<violation beginline="30" endline="30" begincolumn="13" endcolumn="19" rule="SystemPrintln" ruleset="Best Practices" package="com.example" class="PerformanceIssues" method="boxedEquality" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#systemprintln" priority="2">
+Usage of System.out/err
+</violation>
+<violation beginline="35" endline="35" begincolumn="32" endcolumn="49" rule="MutableStaticState" ruleset="Design" package="com.example" class="PerformanceIssues" variable="publicMutableList" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_design.html#mutablestaticstate" priority="3">
+Do not use non-final non-private static fields
+</violation>
+<violation beginline="35" endline="35" begincolumn="32" endcolumn="49" rule="FieldDeclarationsShouldBeAtStartOfClass" ruleset="Code Style" package="com.example" class="PerformanceIssues" variable="publicMutableList" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#fielddeclarationsshouldbeatstartofclass" priority="3">
+Fields should be declared at the top of the class, before any method declarations, constructors, initializers or inner classes.
+</violation>
+<violation beginline="38" endline="38" begincolumn="17" endcolumn="22" rule="UnusedPrivateField" ruleset="Best Practices" package="com.example" class="PerformanceIssues" variable="field" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#unusedprivatefield" priority="3">
+Avoid unused private fields such as 'field'.
+</violation>
+<violation beginline="38" endline="38" begincolumn="17" endcolumn="22" rule="FieldDeclarationsShouldBeAtStartOfClass" ruleset="Code Style" package="com.example" class="PerformanceIssues" variable="field" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#fielddeclarationsshouldbeatstartofclass" priority="3">
+Fields should be declared at the top of the class, before any method declarations, constructors, initializers or inner classes.
+</violation>
+<violation beginline="42" endline="42" begincolumn="16" endcolumn="17" rule="ShortVariable" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="ignoreReturnValue" variable="s" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#shortvariable" priority="3">
+Avoid variables with short names like s
+</violation>
+<violation beginline="42" endline="42" begincolumn="16" endcolumn="17" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="PerformanceIssues" method="ignoreReturnValue" variable="s" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 's' could be declared final
+</violation>
+<violation beginline="43" endline="43" begincolumn="9" endcolumn="25" rule="UselessPureMethodCall" ruleset="Error Prone" package="com.example" class="PerformanceIssues" method="ignoreReturnValue" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#uselesspuremethodcall" priority="3">
+Do not call pure method toUpperCase if the result is not used.
+</violation>
+<violation beginline="43" endline="43" begincolumn="9" endcolumn="24" rule="UselessOperationOnImmutable" ruleset="Error Prone" package="com.example" class="PerformanceIssues" method="ignoreReturnValue" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#uselessoperationonimmutable" priority="3">
+The result of an operation on an immutable object is ignored
+</violation>
+<violation beginline="43" endline="43" begincolumn="9" endcolumn="24" rule="UseLocaleWithCaseConversions" ruleset="Error Prone" package="com.example" class="PerformanceIssues" method="ignoreReturnValue" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#uselocalewithcaseconversions" priority="3">
+When doing a String.toLowerCase()/toUpperCase() call, use a Locale
+</violation>
+</file>
+<file name="C:\Users\JHONSON\Desktop\TESIS\backend\uploads\7492d3c5-0b4a-4eaf-84bc-2c8f18af84eb\MavenVulnerable\src\main\java\com\example\SecurityIssues.java">
+<violation beginline="3" endline="3" begincolumn="1" endcolumn="35" rule="UnnecessaryImport" ruleset="Code Style" package="com.example" class="SecurityIssues" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#unnecessaryimport" priority="4">
+Unused import 'java.security.SecureRandom'
+</violation>
+<violation beginline="6" endline="6" begincolumn="8" endcolumn="13" rule="AtLeastOneConstructor" ruleset="Code Style" package="com.example" class="SecurityIssues" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#atleastoneconstructor" priority="3">
+Each class should declare at least one constructor
+</violation>
+<violation beginline="9" endline="9" begincolumn="33" endcolumn="41" rule="UnusedPrivateField" ruleset="Best Practices" package="com.example" class="SecurityIssues" variable="PASSWORD" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#unusedprivatefield" priority="3">
+Avoid unused private fields such as 'PASSWORD'.
+</violation>
+<violation beginline="10" endline="10" begincolumn="33" endcolumn="43" rule="UnusedPrivateField" ruleset="Best Practices" package="com.example" class="SecurityIssues" variable="SECRET_KEY" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#unusedprivatefield" priority="3">
+Avoid unused private fields such as 'SECRET_KEY'.
+</violation>
+<violation beginline="16" endline="16" begincolumn="35" endcolumn="40" rule="UseUnderscoresInNumericLiterals" ruleset="Code Style" package="com.example" class="SecurityIssues" method="generateWeakToken" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#useunderscoresinnumericliterals" priority="3">
+Number 10000 should separate every third digit with an underscore
+</violation>
+<violation beginline="20" endline="20" begincolumn="37" endcolumn="45" rule="MethodArgumentCouldBeFinal" ruleset="Code Style" package="com.example" class="SecurityIssues" method="buildQuery" variable="username" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#methodargumentcouldbefinal" priority="3">
+Parameter 'username' is not assigned and could be declared final
+</violation>
+<violation beginline="21" endline="21" begincolumn="16" endcolumn="21" rule="UnnecessaryLocalBeforeReturn" ruleset="Code Style" package="com.example" class="SecurityIssues" method="buildQuery" variable="query" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#unnecessarylocalbeforereturn" priority="3">
+Consider simply returning the value vs storing it in local variable 'query'
+</violation>
+<violation beginline="21" endline="21" begincolumn="16" endcolumn="21" rule="VariableCanBeInlined" ruleset="Code Style" package="com.example" class="SecurityIssues" method="buildQuery" variable="query" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#variablecanbeinlined" priority="3">
+Consider simply using the value vs. storing it in local variable 'query'.
+</violation>
+<violation beginline="21" endline="21" begincolumn="16" endcolumn="21" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="SecurityIssues" method="buildQuery" variable="query" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'query' could be declared final
+</violation>
+<violation beginline="26" endline="26" begincolumn="38" endcolumn="46" rule="MethodArgumentCouldBeFinal" ruleset="Code Style" package="com.example" class="SecurityIssues" method="getFilePath" variable="filename" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#methodargumentcouldbefinal" priority="3">
+Parameter 'filename' is not assigned and could be declared final
+</violation>
+<violation beginline="27" endline="27" begincolumn="16" endcolumn="24" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="SecurityIssues" method="getFilePath" variable="basePath" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'basePath' could be declared final
+</violation>
+<violation beginline="32" endline="32" begincolumn="39" endcolumn="48" rule="MethodArgumentCouldBeFinal" ruleset="Code Style" package="com.example" class="SecurityIssues" method="executeCommand" variable="userInput" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#methodargumentcouldbefinal" priority="3">
+Parameter 'userInput' is not assigned and could be declared final
+</violation>
+<violation beginline="32" endline="32" begincolumn="50" endcolumn="66" rule="SignatureDeclareThrowsException" ruleset="Design" package="com.example" class="SecurityIssues" method="executeCommand" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_design.html#signaturedeclarethrowsexception" priority="3">
+A method/constructor should not explicitly throw java.lang.Exception
+</violation>
+<violation beginline="33" endline="33" begincolumn="16" endcolumn="19" rule="LocalVariableCouldBeFinal" ruleset="Code Style" package="com.example" class="SecurityIssues" method="executeCommand" variable="cmd" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#localvariablecouldbefinal" priority="3">
+Local variable 'cmd' could be declared final
+</violation>
+<violation beginline="38" endline="38" begincolumn="43" endcolumn="44" rule="ShortVariable" ruleset="Code Style" package="com.example" class="SecurityIssues" method="handleException" variable="e" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#shortvariable" priority="3">
+Avoid variables with short names like e
+</violation>
+<violation beginline="38" endline="38" begincolumn="43" endcolumn="44" rule="MethodArgumentCouldBeFinal" ruleset="Code Style" package="com.example" class="SecurityIssues" method="handleException" variable="e" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_codestyle.html#methodargumentcouldbefinal" priority="3">
+Parameter 'e' is not assigned and could be declared final
+</violation>
+<violation beginline="39" endline="39" begincolumn="9" endcolumn="28" rule="AvoidPrintStackTrace" ruleset="Best Practices" package="com.example" class="SecurityIssues" method="handleException" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_bestpractices.html#avoidprintstacktrace" priority="3">
+Avoid printStackTrace(); use a logger call instead.
+</violation>
+<violation beginline="43" endline="43" begincolumn="19" endcolumn="24" rule="MissingSerialVersionUID" ruleset="Error Prone" package="com.example" class="SecurityIssues.MySerializable" externalInfoUrl="https://docs.pmd-code.org/snapshot/pmd_rules_java_errorprone.html#missingserialversionuid" priority="3">
+Classes implementing Serializable should set a serialVersionUID
+</violation>
+</file>
+<configerror rule="LoosePackageCoupling" msg="No packages or classes specified"/>
+</pmd>

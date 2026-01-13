@@ -225,6 +225,167 @@ export class AnalysisService {
     }
   }
 
+  async cloneAndAnalyzeRepository(repositoryUrl: string, student: string, userId?: number): Promise<AnalysisResult> {
+    let analysisRun: AnalysisRun;
+    let projectPath: string;
+    let clonedRepoPath: string;
+
+    try {
+      // 1. Validar que la URL sea válida
+      this.logger.log(`🔍 Validando URL del repositorio: ${repositoryUrl}`);
+      
+      let repoName = '';
+      try {
+        const url = new URL(repositoryUrl);
+        if (!url.hostname.includes('github.com') && !url.hostname.includes('gitlab.com') && !url.hostname.includes('bitbucket.org')) {
+          throw new Error('Solo se soportan repositorios de GitHub, GitLab y Bitbucket');
+        }
+        
+        // Extraer nombre del repositorio
+        repoName = url.pathname.split('/').filter(p => p).pop()?.replace('.git', '') || 'repo';
+      } catch (urlError) {
+        throw new Error(`URL de repositorio inválida: ${repositoryUrl}`);
+      }
+
+      // 2. Crear registro inicial
+      this.logger.log(`📝 Creando registro de análisis para repositorio: ${repoName}`);
+      
+      analysisRun = this.analysisRunRepository.create({
+        student,
+        originalFileName: `${repoName} (Repositorio)`,
+        status: 'pending',
+        projectPath: '',
+        userId: userId || null,
+      });
+      analysisRun = await this.analysisRunRepository.save(analysisRun);
+      
+      this.logger.log(`✅ Análisis creado con ID: ${analysisRun.id}`);
+
+      // 3. Clonar el repositorio
+      this.logger.log(`⬇️  Clonando repositorio desde: ${repositoryUrl}`);
+      
+      try {
+        clonedRepoPath = await this.fileService.cloneRepository(repositoryUrl, analysisRun.id.toString());
+        this.logger.log(`✅ Repositorio clonado en: ${clonedRepoPath}`);
+      } catch (cloneError) {
+        throw new Error(`Error al clonar el repositorio: ${cloneError.message}. Verifica que sea un repositorio público.`);
+      }
+
+      // 4. Actualizar el path del proyecto
+      projectPath = clonedRepoPath;
+      analysisRun.projectPath = projectPath;
+      analysisRun.status = 'processing';
+      analysisRun.fileSize = 0; // No aplica para repositorios
+      await this.analysisRunRepository.save(analysisRun);
+
+      // 5. Analizar archivos del repositorio
+      const fileInfo = await this.fileService.findProjectFiles(projectPath);
+      analysisRun.fileStats = {
+        totalFiles: fileInfo.allFiles.length,
+        javaFiles: fileInfo.javaFiles.length,
+        pythonFiles: fileInfo.pythonFiles.length,
+        jsFiles: fileInfo.jsFiles.length,
+        linesOfCode: await this.countLinesOfCode(fileInfo.allFiles),
+      };
+
+      // 6. Ejecutar herramientas de análisis
+      this.logger.log(`🔧 Ejecutando herramientas de análisis...`);
+      
+      const toolResults = await this.toolService.runAllTools(projectPath, fileInfo);
+      
+      this.logger.log(`📊 Herramientas completadas. Procesando resultados...`);
+
+      // 6. Procesar resultados y crear missions
+      const missions = await this.generateMissionsFromFindings(analysisRun, toolResults, this.missionsService);
+
+      // 7. Recolectar findings
+      const allFindings = [];
+      const toolFindings: { [key: string]: number } = {
+        'pmd': 0,
+        'semgrep': 0,
+        'spotbugs': 0,
+        'direct-detection': 0
+      };
+
+      for (const result of toolResults) {
+        if (result.findings && result.findings.length > 0) {
+          allFindings.push(...result.findings);
+          toolFindings[result.tool] = result.findings.length;
+          this.logger.log(`  ✓ ${result.tool}: ${result.findings.length} hallazgos`);
+        }
+      }
+
+      // 8. Calcular métricas
+      const highSeverity = allFindings.filter(f => f.severity === 'high' || f.severity === 3 || f.severity === 2).length;
+      const mediumSeverity = allFindings.filter(f => f.severity === 'medium' || f.severity === 6 || f.severity === 3).length;
+      const lowSeverity = allFindings.filter(f => f.severity === 'low' || f.severity === 1 || f.severity === 4).length;
+
+      const qualityScore = this.calculateQualityScore(allFindings.length);
+
+      // 9. Actualizar análisis con resultados
+      analysisRun.status = 'completed';
+      analysisRun.totalIssues = allFindings.length;
+      analysisRun.highSeverityIssues = highSeverity;
+      analysisRun.mediumSeverityIssues = mediumSeverity;
+      analysisRun.lowSeverityIssues = lowSeverity;
+      analysisRun.qualityScore = qualityScore;
+      analysisRun.toolResults = toolFindings;
+      analysisRun.findings = JSON.stringify(allFindings);
+      analysisRun.completedAt = new Date();
+      
+      await this.analysisRunRepository.save(analysisRun);
+
+      // 10. Procesar achievements
+      if (analysisRun.userId) {
+        await this.achievementsService.checkAndUnlockAchievements(analysisRun.userId);
+      }
+
+      this.logger.log(`✅ Análisis completado exitosamente. ID: ${analysisRun.id}, Hallazgos: ${allFindings.length}`);
+
+      return {
+        id: analysisRun.id,
+        student: analysisRun.student,
+        originalFileName: analysisRun.originalFileName,
+        status: analysisRun.status,
+        findings: allFindings,
+        totalIssues: analysisRun.totalIssues,
+        highSeverityIssues: analysisRun.highSeverityIssues,
+        mediumSeverityIssues: analysisRun.mediumSeverityIssues,
+        lowSeverityIssues: analysisRun.lowSeverityIssues,
+        qualityScore: analysisRun.qualityScore,
+        createdAt: analysisRun.createdAt.toISOString(),
+        completedAt: analysisRun.completedAt?.toISOString(),
+        message: `Repositorio ${repoName} analizado correctamente`
+      };
+
+    } catch (error) {
+      this.logger.error(`❌ Error en análisis de repositorio: ${error.message}`, error.stack);
+
+      if (analysisRun) {
+        analysisRun.status = 'failed';
+        analysisRun.errorMessage = error.message;
+        await this.analysisRunRepository.save(analysisRun);
+      }
+
+      // Limpiar en caso de error
+      if (projectPath) {
+        await this.fileService.cleanupProject(projectPath);
+      }
+
+      throw new Error(`Error al analizar el repositorio: ${error.message}`);
+    }
+  }
+
+  private calculateQualityScore(issueCount: number): number {
+    // Calcular score de calidad (0-100) basado en número de problemas
+    let qualityScore = 100;
+    if (issueCount > 0) {
+      // Penalizar por cada problema encontrado
+      qualityScore = Math.max(0, 100 - (issueCount * 2));
+    }
+    return Math.round(qualityScore * 100) / 100;
+  }
+
   async getAnalysisById(id: number): Promise<AnalysisRun> {
     const analysis = await this.analysisRunRepository.findOne({ where: { id } });
     if (!analysis) {
@@ -266,7 +427,11 @@ export class AnalysisService {
         failedTools: toolResults.filter(r => !r.success).length,
       },
       results: {},
+      deduplicationMap: {}, // Maps findings to tools that detected them
     };
+
+    // Crear un mapa para deduplicación de hallazgos idénticos entre herramientas
+    const findingsMap = new Map<string, { finding: any; tools: Set<string> }>();
 
     for (const result of toolResults) {
       processed.results[result.tool] = {
@@ -275,7 +440,29 @@ export class AnalysisService {
         findings: result.findings,
         error: result.error,
       };
+
+      // Generar keys para deduplicación (path + line + message)
+      if (Array.isArray(result.findings)) {
+        for (const finding of result.findings) {
+          const filePath = finding.path || finding.file || finding.sourcefile || finding.fileName || '';
+          const line = finding.line || finding.start?.line || finding.startLine || '';
+          const message = (finding.message || finding.rule || finding.type || '').substring(0, 100);
+          const key = `${filePath}:${line}:${message}`;
+
+          if (findingsMap.has(key)) {
+            findingsMap.get(key)!.tools.add(result.tool);
+          } else {
+            findingsMap.set(key, { finding, tools: new Set([result.tool]) });
+          }
+        }
+      }
     }
+
+    // Guardar el mapa de deduplicación para referencia
+    processed.deduplicationMap = Array.from(findingsMap.entries()).reduce((acc, [key, val]) => {
+      acc[key] = Array.from(val.tools);
+      return acc;
+    }, {});
 
     return processed;
   }
@@ -290,125 +477,117 @@ export class AnalysisService {
   private generateEducationalDescription(tool: string, finding: any, severity: string): { title: string; description: string } {
     const originalMessage = finding.message || finding.description || finding.rule || finding.type || finding.check_id || 'Problema detectado';
     const ruleId = finding.ruleId || finding.rule || finding.type || finding.check_id || finding.$?.type || '';
-    
-    // Plantillas educativas por categorías comunes
-    const educationalTemplates: { [key: string]: { title: string; explanation: string; recommendation: string } } = {
-      // Errores de recursos no cerrados
-      'resource-leak': {
-        title: '📚 Recurso sin cerrar correctamente',
-        explanation: 'Has abierto un recurso (como un archivo, conexión a base de datos, o stream) pero no lo estás cerrando. Esto puede causar problemas de memoria y rendimiento.',
-        recommendation: 'Usa try-with-resources en Java o asegúrate de cerrar el recurso en un bloque finally. Ejemplo: try (FileReader fr = new FileReader("archivo.txt")) { ... }'
-      },
-      // Null pointer
-      'null': {
-        title: '⚠️ Posible error de variable null',
-        explanation: 'Estás usando una variable que podría ser null (vacía) sin verificar primero. Esto puede causar que tu programa se detenga inesperadamente.',
-        recommendation: 'Antes de usar la variable, verifica que no sea null: if (variable != null) { ... }'
-      },
-      // Variables no usadas
-      'unused': {
-        title: '🧹 Variable o código sin usar',
-        explanation: 'Has declarado una variable, método o importación que no estás usando en tu código. Esto hace que tu código sea más difícil de leer y mantener.',
-        recommendation: 'Elimina el código que no estés usando para mantener tu proyecto limpio y fácil de entender.'
-      },
-      // Comparaciones
-      'equality': {
-        title: '🔍 Problema con comparación de valores',
-        explanation: 'Estás comparando valores de forma incorrecta. En Java, usar == para comparar objetos como String verifica si son el mismo objeto en memoria, no si tienen el mismo contenido.',
-        recommendation: 'Para comparar contenido de objetos usa .equals(): if (texto1.equals(texto2)) { ... }'
-      },
-      // Seguridad
-      'security': {
-        title: '🔒 Problema de seguridad detectado',
-        explanation: 'Tu código tiene una vulnerabilidad de seguridad que podría ser explotada por usuarios malintencionados.',
-        recommendation: 'Revisa las mejores prácticas de seguridad para este tipo de operación. Nunca confíes en datos que vienen del usuario sin validarlos primero.'
-      },
-      // Excepciones
-      'exception': {
-        title: '🚨 Manejo incorrecto de errores',
-        explanation: 'No estás manejando correctamente los posibles errores que pueden ocurrir. Esto puede hacer que tu programa falle sin dar información útil.',
-        recommendation: 'Usa bloques try-catch para manejar errores: try { ... } catch (Exception e) { // maneja el error }'
-      },
-      // Performance
-      'performance': {
-        title: '⚡ Problema de rendimiento',
-        explanation: 'Tu código funciona pero podría ser más eficiente. Esto es importante cuando trabajas con muchos datos o cuando el código se ejecuta muchas veces.',
-        recommendation: 'Considera usar estructuras de datos más eficientes o algoritmos optimizados para esta operación.'
-      },
-      // Nombres
-      'naming': {
-        title: '📝 Nombre poco claro o incorrecto',
-        explanation: 'El nombre que elegiste para esta variable, método o clase no sigue las convenciones de Java o no es descriptivo.',
-        recommendation: 'Usa nombres descriptivos en camelCase para variables y métodos (ej: cantidadUsuarios) y PascalCase para clases (ej: UsuarioActivo).'
-      },
-      // Complejidad
-      'complexity': {
-        title: '🌀 Código demasiado complejo',
-        explanation: 'Este método o función tiene demasiadas decisiones o caminos diferentes, lo que hace difícil entenderlo y probarlo.',
-        recommendation: 'Divide este código en funciones más pequeñas y simples. Cada función debería hacer una sola cosa bien.'
-      }
-    };
-
-    // Detectar categoría del error
-    let category = 'general';
     const msgLower = (originalMessage + ' ' + ruleId).toLowerCase();
     
-    if (msgLower.includes('resource') || msgLower.includes('close') || msgLower.includes('leak')) {
-      category = 'resource-leak';
+    let title = '';
+    let explanation = '';
+    let recommendation = '';
+    
+    if (msgLower.includes('system.out') || msgLower.includes('system.err') || msgLower.includes('println')) {
+      title = '📝 No uses System.out.println() en código profesional';
+      explanation = 'System.out.println() está bien para aprender, pero en código real debes usar un Logger.';
+      recommendation = 'Usa logger.info("Mi mensaje") en lugar de System.out.println("Mi mensaje")';
+    } else if (msgLower.includes('string') && (msgLower.includes('instantiat') || msgLower.includes('new string'))) {
+      title = '⚡ No crees String con new String()';
+      explanation = 'En Java, crear strings con new String() desperdicia memoria innecesariamente.';
+      recommendation = 'Usa: String texto = "Hola"; en lugar de String texto = new String("Hola");';
+    } else if (msgLower.includes('hardcoded') || msgLower.includes('credential') || msgLower.includes('password') || (msgLower.includes('api') && msgLower.includes('key'))) {
+      title = '🔴 ¡ALERTA! Contraseñas en el código';
+      explanation = 'Nunca escribas contraseñas o claves en el código. Si subes a GitHub, cualquiera lo verá.';
+      recommendation = 'Usa variables de entorno: String password = System.getenv("DB_PASSWORD");';
+    } else if (msgLower.includes('sql') && (msgLower.includes('inject') || msgLower.includes('injection'))) {
+      title = '🔴 SQL Injection - Vulnerabilidad crítica';
+      explanation = 'Si concatenas input del usuario en SQL, un atacante puede ejecutar comandos maliciosos.';
+      recommendation = 'Usa PreparedStatement: stmt.setString(1, email); en lugar de concatenar strings';
+    } else if (msgLower.includes('resource') || msgLower.includes('close') || msgLower.includes('leak') || msgLower.includes('stream')) {
+      title = '📚 Recurso sin cerrar correctamente';
+      explanation = 'Archivos y conexiones abiertos sin cerrar causan memory leaks y ralentizan el programa.';
+      recommendation = 'Usa try-with-resources: try (FileReader fr = new FileReader("archivo.txt")) { ... }';
     } else if (msgLower.includes('null') || msgLower.includes('npe') || msgLower.includes('pointer')) {
-      category = 'null';
+      title = '⚠️ Variable puede ser null - causará crash';
+      explanation = 'Si usas una variable null sin verificar, el programa se detendrá con NullPointerException.';
+      recommendation = 'Siempre verifica: if (variable != null) { variable.usar(); }';
+    } else if (msgLower.includes('file') && (msgLower.includes('stream') || msgLower.includes('reader') || msgLower.includes('writer'))) {
+      title = '📁 Manejo incorrecto de archivos';
+      explanation = 'FileInputStream, FileOutputStream y streams necesitan cerrarse correctamente.';
+      recommendation = 'Usa try-with-resources para cerrar automáticamente los recursos';
+    } else if (msgLower.includes('xss') || (msgLower.includes('script') && msgLower.includes('user'))) {
+      title = '🔴 XSS - Input del usuario no validado';
+      explanation = 'Si muestras texto del usuario en HTML sin validar, un atacante inyecta scripts maliciosos.';
+      recommendation = 'En JSP usa taglib o escapeador: <c:out value="${usuarioInput}"/>';
+    } else if (msgLower.includes('random') && msgLower.includes('secure')) {
+      title = '🔴 Random() no es seguro para tokens';
+      explanation = 'Math.random() es predecible. Un atacante puede adivinar tokens o sesiones.';
+      recommendation = 'Para criptografía usa: new SecureRandom().nextBytes(buffer);';
+    } else if (msgLower.includes('path') && msgLower.includes('traversal')) {
+      title = '🔴 Path Traversal - Acceso a archivos malicioso';
+      explanation = 'Si un usuario escribe "../../../etc/passwd", accede a archivos fuera de su carpeta.';
+      recommendation = 'Valida rutas: Path full = base.resolve(userPath).normalize();';
+    } else if (msgLower.includes('command') && msgLower.includes('inject')) {
+      title = '🔴 Command Injection - Ejecución de comandos peligrosa';
+      explanation = 'Runtime.exec() con input del usuario permite atacantes ejecutar comandos arbitrarios.';
+      recommendation = 'Evita Runtime.exec() con input del usuario. Si es necesario, valida muy estrictamente.';
+    } else if (msgLower.includes('equal') || msgLower.includes('==') || (msgLower.includes('comparison') && msgLower.includes('string'))) {
+      title = '🔍 Comparación incorrecta de objetos';
+      explanation = '== compara si son el mismo objeto en memoria. Para contenido, usa .equals().';
+      recommendation = 'Usa: if (usuario1.equals(usuario2)) o usuario1.equalsIgnoreCase(usuario2);';
     } else if (msgLower.includes('unused') || msgLower.includes('never read') || msgLower.includes('not used')) {
-      category = 'unused';
-    } else if (msgLower.includes('equal') || msgLower.includes('comparison') || msgLower.includes('compare')) {
-      category = 'equality';
-    } else if (msgLower.includes('security') || msgLower.includes('injection') || msgLower.includes('vulnerable')) {
-      category = 'security';
-    } else if (msgLower.includes('exception') || msgLower.includes('catch') || msgLower.includes('throw')) {
-      category = 'exception';
+      title = '🧹 Variable declarada pero nunca usada';
+      explanation = 'Mantener variables sin usar hace el código confuso y difícil de mantener.';
+      recommendation = 'Si no la usas, elimínala. Otros programadores pensarán que falta algo.';
+    } else if (msgLower.includes('exception') || msgLower.includes('catch') || msgLower.includes('error handling')) {
+      title = '🚨 Manejo incorrecto de errores';
+      explanation = 'Si haces catch sin hacer nada, ocultarás errores. Los bugs serán imposibles de encontrar.';
+      recommendation = 'Siempre maneja excepciones: logger.error("Mensaje", e) o throw new RuntimeException(e);';
     } else if (msgLower.includes('performance') || msgLower.includes('inefficient') || msgLower.includes('slow')) {
-      category = 'performance';
-    } else if (msgLower.includes('name') || msgLower.includes('naming') || msgLower.includes('convention')) {
-      category = 'naming';
-    } else if (msgLower.includes('complex') || msgLower.includes('cognitive') || msgLower.includes('cyclomatic')) {
-      category = 'complexity';
+      title = '⚡ Código ineficiente - mejora el rendimiento';
+      explanation = 'Este código podría ser mucho más rápido usando mejores estructuras y algoritmos.';
+      recommendation = 'Usa HashMap en lugar de ArrayList, evita loops anidados, carga datos una sola vez.';
     }
 
-    const template = educationalTemplates[category];
+    const severityEmoji = severity === 'high' ? '🔴' : severity === 'medium' ? '🟡' : '🟢';
     
-    if (template) {
-      // Usar plantilla educativa
-      const severityEmoji = severity === 'high' ? '🔴' : severity === 'medium' ? '🟡' : '🟢';
+    if (title) {
+      let description = '**¿Qué está pasando?**\n' + explanation + '\n\n**¿Cómo arreglarlo?**\n' + recommendation;
+      description += '\n\n---\n\n**Herramienta:** ' + tool + '\n**Mensaje técnico:** ' + originalMessage;
+      
       return {
-        title: `${severityEmoji} ${template.title}`,
-        description: `**¿Qué está pasando?**\n${template.explanation}\n\n**¿Cómo mejorar tu código?**\n${template.recommendation}\n\n**Detalle técnico:** ${originalMessage}\n\n**Herramienta:** ${tool}`
+        title: severityEmoji + ' ' + title,
+        description
       };
     }
 
-    // Fallback: descripción genérica pero educativa
-    const severityEmoji = severity === 'high' ? '🔴' : severity === 'medium' ? '🟡' : '🟢';
-    let genericExplanation = '';
-    
-    if (severity === 'high') {
-      genericExplanation = 'Este es un problema importante que debes corregir. Puede causar errores graves en tu programa o problemas de seguridad.';
-    } else if (severity === 'medium') {
-      genericExplanation = 'Este es un problema que debes revisar. Aunque tu código puede funcionar, esta mejora hará que sea más seguro y fácil de mantener.';
-    } else {
-      genericExplanation = 'Esta es una sugerencia de mejora. Tu código funciona, pero siguiendo esta recomendación tendrás un código más limpio y profesional.';
-    }
-
+    let genericExplanation = severity === 'high' 
+      ? 'Este es un problema importante que debes corregir. Puede causar errores graves.'
+      : severity === 'medium'
+      ? 'Este es un problema a revisar. Mejorará la seguridad y mantenibilidad.'
+      : 'Esta es una sugerencia de mejora. Tu código será más limpio y profesional.';
+      
     return {
-      title: `${severityEmoji} Mejora tu código: ${originalMessage.substring(0, 80)}${originalMessage.length > 80 ? '...' : ''}`,
-      description: `**¿Qué está pasando?**\n${genericExplanation}\n\n**Mensaje del análisis:**\n${originalMessage}\n\n**Herramienta que lo detectó:** ${tool}\n\n**¿Qué hacer?** Lee el mensaje cuidadosamente y busca en la documentación de Java o pregunta a tu profesor sobre este tema específico.`
+      title: severityEmoji + ' Mejora tu código: ' + originalMessage.substring(0, 80) + (originalMessage.length > 80 ? '...' : ''),
+      description: '**¿Qué está pasando?**\n' + genericExplanation + '\n\n**Mensaje del análisis:**\n' + originalMessage + '\n\n**Herramienta:** ' + tool
     };
   }
 
   async generateMissionsFromFindings(analysis: AnalysisRun, toolResults: ToolResult[], missionsService: any): Promise<any[]> {
     // Normalizar todos los findings en una lista plana
     const allFindings: any[] = [];
+    
+    this.logger.log(`📊 [generateMissionsFromFindings] Procesando ${toolResults.length} herramientas`);
+    
     for (const tr of toolResults) {
-      if (!tr || !tr.findings) continue;
+      if (!tr || !tr.findings) {
+        this.logger.log(`⚠️ [${tr?.tool || 'unknown'}] Sin findings`);
+        continue;
+      }
+      
+      this.logger.log(`📖 [${tr.tool}] Procesando ${Array.isArray(tr.findings) ? tr.findings.length : 'unknown'} findings`);
+      
       if (Array.isArray(tr.findings)) {
-        for (const f of tr.findings) allFindings.push({ tool: tr.tool, raw: f });
+        for (const f of tr.findings) {
+          allFindings.push({ tool: tr.tool, raw: f });
+          this.logger.debug(`  └─ ${tr.tool}: ${f.message || f.rule || f.title || 'sin descripción'}`);
+        }
       } else if (typeof tr.findings === 'object') {
         // Try to extract nested 'results' structure
         const res = (tr.findings as any).results || tr.findings;
@@ -417,12 +596,17 @@ export class AnalysisService {
             const item = res[key];
             const arr = item?.findings || item || [];
             if (Array.isArray(arr)) {
-              for (const f of arr) allFindings.push({ tool: tr.tool, raw: f });
+              for (const f of arr) {
+                allFindings.push({ tool: tr.tool, raw: f });
+                this.logger.debug(`  └─ ${tr.tool}[${key}]: ${f.message || f.rule || f.title || 'sin descripción'}`);
+              }
             }
           }
         }
       }
     }
+
+    this.logger.log(`✅ Total findings procesados: ${allFindings.length}`);
 
     const missionsToCreate: Partial<any>[] = [];
 
@@ -434,9 +618,29 @@ export class AnalysisService {
       const educational = this.generateEducationalDescription(f.tool, f.raw, severity);
       
       // Construir ubicación del problema
-      const filePath = f.raw.path || f.raw.sourceLine?.sourcefile || f.raw.sourcefile || f.raw.fileName || null;
-      const startLine = f.raw.start?.line || f.raw.sourceLine?.beginline || f.raw.sourceLine?.start || null;
+      const filePath = f.raw.path || f.raw.sourceLine?.sourcefile || f.raw.sourcefile || f.raw.fileName || f.raw.file || null;
+      const startLine = f.raw.start?.line || f.raw.sourceLine?.beginline || f.raw.sourceLine?.start || f.raw.line || null;
       const endLine = f.raw.end?.line || f.raw.sourceLine?.endline || f.raw.sourceLine?.end || null;
+
+      // Intentar leer la línea de código del archivo
+      let codeSnippet = null;
+      if (filePath && startLine) {
+        try {
+          const fs = require('fs');
+          if (fs.existsSync(filePath)) {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const lines = content.split('\n');
+            const lineIndex = Number(startLine) - 1;
+            if (lineIndex >= 0 && lineIndex < lines.length) {
+              codeSnippet = lines[lineIndex].trim();
+            }
+          }
+        } catch (err) {
+          // Silenciosamente ignorar si no se puede leer el archivo
+        }
+      }
+
+      this.logger.log(`🎯 [${f.tool}] ${severity.toUpperCase()}: ${educational.title} @ ${filePath}:${startLine}`);
 
       missionsToCreate.push({
         title: educational.title,
@@ -445,15 +649,22 @@ export class AnalysisService {
         lineStart: startLine ? Number(startLine) : null,
         lineEnd: endLine ? Number(endLine) : null,
         severity,
+        codeSnippet,
         metadata: { tool: f.tool, raw: f.raw }
       });
     }
 
+    this.logger.log(`📋 Total misiones a crear: ${missionsToCreate.length}`);
+
     // Dejar un tope razonable (por ejemplo 200 misiones)
     const limited = missionsToCreate.slice(0, 200);
 
+    this.logger.log(`🚀 Creando ${limited.length} misiones en la base de datos`);
+
     // Crear misiones usando el servicio pasado
     const created = await missionsService.createForAnalysis(analysis, limited);
+
+    this.logger.log(`✅ Misiones creadas: ${created.length}`);
 
     // Mapear las misiones recién creadas a los findings procesados dentro del objeto `analysis`
     try {
@@ -792,7 +1003,8 @@ export class AnalysisService {
           
         case 'pmd':
           // Para PMD, usar el nivel de priority
-          const pmdPriority = finding.priority;
+          const pmdPriority = finding.priority || finding.$.priority;
+          this.logger.debug(`[PMD PRIORITY] ${finding.message || finding.rule}: priority=${pmdPriority}`);
           if (pmdPriority === '1' || pmdPriority === '2') return 'high';
           if (pmdPriority === '3') return 'medium';
           return 'low';
@@ -808,6 +1020,13 @@ export class AnalysisService {
           const eslintSeverity = finding.severity;
           if (eslintSeverity === 2) return 'high';
           if (eslintSeverity === 1) return 'medium';
+          return 'low';
+
+        case 'direct-detection':
+          // Para detección directa, usar el severity si está disponible
+          const directSeverity = finding.severity;
+          if (directSeverity === 'high' || directSeverity === 'CRITICAL' || directSeverity === 'HIGH') return 'high';
+          if (directSeverity === 'medium' || directSeverity === 'MEDIUM' || directSeverity === 'WARNING') return 'medium';
           return 'low';
           
         default:
@@ -849,6 +1068,22 @@ export class AnalysisService {
     if (!analysis) {
       throw new NotFoundException(`Análisis con ID ${id} no encontrado`);
     }
+
+    // DEBUG: Log findings structure
+    this.logger.log(`[findById] ID: ${id}`);
+    this.logger.log(`[findById] findings type: ${typeof analysis.findings}`);
+    this.logger.log(`[findById] findings value: ${JSON.stringify(analysis.findings).substring(0, 200)}`);
+    
+    // Si findings es string, parsearlo
+    if (typeof analysis.findings === 'string') {
+      try {
+        analysis.findings = JSON.parse(analysis.findings);
+        this.logger.log(`[findById] findings parsed to object`);
+      } catch (e) {
+        this.logger.warn(`[findById] Failed to parse findings: ${e.message}`);
+      }
+    }
+
     return analysis;
   }
 
@@ -856,8 +1091,20 @@ export class AnalysisService {
    * Encontrar todos los análisis
    */
   async findAll(): Promise<AnalysisRun[]> {
-    return this.analysisRunRepository.find({
+    const analyses = await this.analysisRunRepository.find({
       order: { createdAt: 'DESC' }
+    });
+    
+    // Parse findings if needed
+    return analyses.map(a => {
+      if (typeof a.findings === 'string') {
+        try {
+          a.findings = JSON.parse(a.findings);
+        } catch (e) {
+          this.logger.warn(`Failed to parse findings for analysis ${a.id}`);
+        }
+      }
+      return a;
     });
   }
 
@@ -865,9 +1112,21 @@ export class AnalysisService {
    * Encontrar análisis por estudiante
    */
   async findByStudent(student: string): Promise<AnalysisRun[]> {
-    return this.analysisRunRepository.find({
+    const analyses = await this.analysisRunRepository.find({
       where: { student },
       order: { createdAt: 'DESC' }
+    });
+    
+    // Parse findings if needed
+    return analyses.map(a => {
+      if (typeof a.findings === 'string') {
+        try {
+          a.findings = JSON.parse(a.findings);
+        } catch (e) {
+          this.logger.warn(`Failed to parse findings for analysis ${a.id}`);
+        }
+      }
+      return a;
     });
   }
 
@@ -1070,13 +1329,24 @@ export class AnalysisService {
 
   // Método auxiliar para mapear entidades a resultados
   private mapToAnalysisResult(analysis: AnalysisRun): AnalysisResult {
+    // Parse findings if it's a string
+    let findings = analysis.findings;
+    if (typeof findings === 'string') {
+      try {
+        findings = JSON.parse(findings);
+      } catch (e) {
+        this.logger.warn(`Failed to parse findings in mapToAnalysisResult for analysis ${analysis.id}`);
+        findings = null;
+      }
+    }
+
     return {
       id: analysis.id,
       student: analysis.student,
       originalFileName: analysis.originalFileName,
       fileSize: analysis.fileSize,
       status: analysis.status,
-      findings: analysis.findings,
+      findings: findings,
       totalIssues: analysis.totalIssues || 0,
       highSeverityIssues: analysis.highSeverityIssues || 0,
       mediumSeverityIssues: analysis.mediumSeverityIssues || 0,
