@@ -39,36 +39,45 @@ RUN apk add --no-cache unzip tar wget && \
 # Instalar PMD desde versión estable conocida
 RUN echo "Descargando PMD..." && \
     mkdir -p /tmp/pmd_download && \
-    curl -L --retry 5 --connect-timeout 10 --max-time 120 -v \
+    curl -L --retry 5 --connect-timeout 10 --max-time 120 \
     "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" \
-    -o /tmp/pmd.zip 2>&1 | tail -20 && \
-    ls -lah /tmp/pmd.zip && \
-    unzip -l /tmp/pmd.zip | head -20 && \
+    -o /tmp/pmd.zip && \
     unzip -q /tmp/pmd.zip -d /opt/tools && \
-    ls -la /opt/tools/pmd-* 2>/dev/null || true && \
-    ln -sf /opt/tools/pmd-*/bin/pmd /usr/local/bin/pmd && \
-    /usr/local/bin/pmd --version && \
-    echo "✓ PMD instalado exitosamente"
+    PMD_DIR=$(ls -d /opt/tools/pmd-* 2>/dev/null | head -1) && \
+    chmod +x "$PMD_DIR/bin/pmd" && \
+    chmod +x "$PMD_DIR/bin/run.sh" && \
+    ln -sf "$PMD_DIR/bin/pmd" /usr/local/bin/pmd && \
+    pmd --version && \
+    echo "✓ PMD instalado en $PMD_DIR"
 
-# Instalar SpotBugs desde versión estable conocida
+# Instalar SpotBugs desde versión estable (sourceforge como alternativa)
 RUN echo "Descargando SpotBugs..." && \
     mkdir -p /tmp/spotbugs_download && \
-    curl -L --retry 5 --connect-timeout 10 --max-time 120 -v \
+    (curl -L --retry 5 --connect-timeout 10 --max-time 120 \
     "https://github.com/spotbugs/spotbugs/releases/download/4.8.3/spotbugs-4.8.3.zip" \
-    -o /tmp/spotbugs.zip 2>&1 | tail -20 && \
-    ls -lah /tmp/spotbugs.zip && \
-    unzip -l /tmp/spotbugs.zip | head -20 && \
+    -o /tmp/spotbugs.zip 2>&1 || \
+    curl -L --retry 5 --connect-timeout 10 --max-time 120 \
+    "https://sourceforge.net/projects/spotbugs/files/spotbugs/4.8.3/spotbugs-4.8.3.zip/download" \
+    -o /tmp/spotbugs.zip 2>&1) && \
     unzip -q /tmp/spotbugs.zip -d /opt/tools && \
-    ls -la /opt/tools/spotbugs-* 2>/dev/null || true && \
-    ln -sf /opt/tools/spotbugs-*/bin/spotbugs /usr/local/bin/spotbugs && \
-    /usr/local/bin/spotbugs -version && \
-    echo "✓ SpotBugs instalado exitosamente"
+    SPOTBUGS_DIR=$(ls -d /opt/tools/spotbugs-* 2>/dev/null | head -1) && \
+    chmod +x "$SPOTBUGS_DIR/bin/spotbugs" && \
+    chmod +x "$SPOTBUGS_DIR/bin/run.sh" && \
+    ln -sf "$SPOTBUGS_DIR/bin/spotbugs" /usr/local/bin/spotbugs && \
+    spotbugs -version && \
+    echo "✓ SpotBugs instalado en $SPOTBUGS_DIR"
+
+# Instalar Maven (necesario para SpotBugs)
+RUN echo "Instalando Maven..." && \
+    apk add --no-cache maven && \
+    mvn --version && \
+    echo "✓ Maven instalado exitosamente"
 
 # Instalar Semgrep desde pip
 RUN echo "Instalando Semgrep..."; \
-    pip3 install --no-cache-dir --break-system-packages semgrep 2>/dev/null && \
-    echo "✓ Semgrep instalado exitosamente" || \
-    echo "⚠ Error al instalar Semgrep"
+    pip3 install --no-cache-dir --break-system-packages semgrep && \
+    semgrep --version && \
+    echo "✓ Semgrep instalado exitosamente"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
@@ -94,4 +103,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
 
 # Iniciar aplicación con logs de diagnóstico
-CMD ["sh", "-c", "echo '=== Verificación de herramientas de análisis ===' && (test -x /usr/local/bin/pmd && pmd --version 2>&1 || echo '⚠ PMD: No disponible (usará detección directa)') && (test -x /usr/local/bin/spotbugs && spotbugs -version 2>&1 | head -1 || echo '⚠ SpotBugs: No disponible (usará detección directa)') && (which semgrep >/dev/null && semgrep --version || echo '⚠ Semgrep: No disponible') && echo '===' && node dist/main.js"]
+CMD ["sh", "-c", "echo '=== Verificación de herramientas de análisis ===' && pmd --version 2>&1 && spotbugs -version 2>&1 && semgrep --version && echo '===' && node dist/main.js"]
