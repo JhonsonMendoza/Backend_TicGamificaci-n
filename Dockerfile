@@ -17,15 +17,12 @@ COPY src ./src
 # Compilar TypeScript
 RUN npm run build
 
-# Etapa 2: Runtime - Imagen final con herramientas de análisis
+# Etapa 2: Runtime - Imagen final con herramientas de análisis PRE-COMPILADAS
 FROM node:20-alpine
-
-# Invalidar caché de docker para forzar rebuild completo
-ARG CACHEBUST=build_$(date +%s)_pmd_semgrep_fix_2025_01_14
 
 WORKDIR /app
 
-# Instalar dependencias del sistema necesarias para herramientas de análisis
+# Instalar SOLO dependencias del sistema (sin herramientas pesadas)
 RUN apk add --no-cache \
     openjdk11 \
     python3 \
@@ -33,77 +30,58 @@ RUN apk add --no-cache \
     git \
     curl \
     bash \
-    ca-certificates \
-    unzip \
-    tar \
-    wget
-
-# Configurar variables de entorno ANTES de instalar herramientas
-ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk \
-    PATH="/opt/tools/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
+    ca-certificates
 
 # Crear directorio de herramientas
 RUN mkdir -p /opt/tools/bin
 
-# ============ INSTALAR PMD ============
-RUN echo "📥 Descargando PMD 7.0.0..." && \
-    cd /tmp && \
-    curl -L --max-time 300 --retry 5 --connect-timeout 30 \
-    -o pmd-7.0.0.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 || \
-    curl -L --max-time 300 --retry 5 --connect-timeout 30 \
-    -o pmd-7.0.0.zip "https://downloads.sourceforge.net/project/pmd/pmd/7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 && \
-    echo "✓ PMD descargado, extrayendo..." && \
-    unzip -q pmd-7.0.0.zip -d /opt/tools && \
-    PMD_DIR=$(find /opt/tools -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
-    if [ -z "$PMD_DIR" ]; then echo "❌ Error: No se encontró PMD"; exit 1; fi && \
-    mv "$PMD_DIR" /opt/tools/pmd && \
-    chmod -R +x /opt/tools/pmd/bin && \
-    ln -sf /opt/tools/pmd/bin/pmd /usr/bin/pmd && \
-    /usr/bin/pmd --version && \
-    echo "✅ PMD instalado correctamente"
+# ============ COPIAR HERRAMIENTAS PRECOMPILADAS DEL BUILDER ============
+# Copiar PMD desde builder (ya compilado y verificado)
+COPY --from=builder /opt/tools/pmd /opt/tools/pmd
 
+# Copiar SpotBugs desde builder  
+COPY --from=builder /opt/tools/spotbugs /opt/tools/spotbugs
 
-# ============ INSTALAR SPOTBUGS ============
-RUN echo "📥 Descargando SpotBugs..." && \
-    cd /tmp && \
-    curl -L --retry 5 --connect-timeout 10 --max-time 120 \
-    -o spotbugs.zip "https://github.com/spotbugs/spotbugs/releases/download/4.8.3/spotbugs-4.8.3.zip" 2>&1 || \
-    curl -L --retry 5 --connect-timeout 10 --max-time 120 \
-    -o spotbugs.zip "https://sourceforge.net/projects/spotbugs/files/spotbugs/4.8.3/spotbugs-4.8.3.zip/download" 2>&1 && \
-    unzip -q spotbugs.zip -d /tmp && \
-    SPOTBUGS_DIR=$(find /tmp -maxdepth 1 -type d -name "spotbugs-*" | head -1) && \
-    if [ -z "$SPOTBUGS_DIR" ]; then echo "❌ Error: No se encontró SpotBugs"; exit 1; fi && \
-    mv "$SPOTBUGS_DIR" /opt/tools/spotbugs && \
-    chmod -R +x /opt/tools/spotbugs/bin && \
-    ln -sf /opt/tools/spotbugs/bin/spotbugs /opt/tools/bin/spotbugs && \
-    ln -sf /opt/tools/spotbugs/bin/spotbugs /usr/local/bin/spotbugs && \
-    echo "✅ SpotBugs instalado en /opt/tools/spotbugs"
-
-# Verificar SpotBugs funciona
-RUN echo "🔍 Verificando SpotBugs..." && \
-    if [ -f /opt/tools/spotbugs/bin/spotbugs ]; then \
-        echo "   ✓ Archivo ejecutable encontrado"; \
-        /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 || echo "⚠️ SpotBugs versión falló pero el binario existe"; \
-    else \
-        echo "❌ Archivo /opt/tools/spotbugs/bin/spotbugs no existe"; \
-        exit 1; \
-    fi && \
-    echo "✅ SpotBugs verificado"
-
-# ============ INSTALAR MAVEN ============
-RUN apk add --no-cache maven && \
-    mvn --version && \
-    echo "✅ Maven instalado"
-
-# ============ INSTALAR SEMGREP ============
+# ============ INSTALAR SEMGREP EN RUNTIME ============
 RUN echo "📦 Instalando Semgrep via pip3..." && \
     pip3 install --no-cache-dir --break-system-packages semgrep && \
-    echo "✅ Semgrep instalado" && \
+    which semgrep && \
     semgrep --version && \
-    echo "✅ Semgrep verificado y listo"
+    echo "✅ Semgrep listo"
 
-# Asegurar que los symlinks están disponibles en PATH
-ENV PATH="/opt/tools/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
+# ============ INSTALAR MAVEN EN RUNTIME ============
+RUN apk add --no-cache maven && \
+    mvn --version && \
+    echo "✅ Maven listo"
+
+# ============ CREAR SYMLINKS Y PATH ============
+RUN ln -sf /opt/tools/pmd/bin/pmd /usr/bin/pmd && \
+    ln -sf /opt/tools/spotbugs/bin/spotbugs /usr/local/bin/spotbugs && \
+    ln -sf /opt/tools/spotbugs/bin/spotbugs /opt/tools/bin/spotbugs
+
+# Configurar PATH y JAVA_HOME
+ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk \
+    PATH="/opt/tools/pmd/bin:/opt/tools/spotbugs/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
+
+# ============ VERIFICAR TODAS LAS HERRAMIENTAS ============
+RUN echo "═══════════════════════════════════════════" && \
+    echo "✅ VERIFICACIÓN EN IMAGEN FINAL" && \
+    echo "═══════════════════════════════════════════" && \
+    echo "1️⃣  PMD:" && \
+    /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 && \
+    echo "   ✓ Path: $(which pmd)" && \
+    echo "" && \
+    echo "2️⃣  SpotBugs:" && \
+    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 && \
+    echo "   ✓ Path: $(which spotbugs)" && \
+    echo "" && \
+    echo "3️⃣  Semgrep:" && \
+    semgrep --version && \
+    echo "   ✓ Path: $(which semgrep)" && \
+    echo "" && \
+    echo "4️⃣  Maven:" && \
+    mvn --version 2>&1 | head -1 && \
+    echo "═══════════════════════════════════════════"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
@@ -117,9 +95,10 @@ COPY --from=builder /app/dist ./dist
 # Copiar archivos de configuración
 COPY pmd-ruleset.xml ./
 COPY .env.example ./
+COPY entrypoint.sh ./
 
 # Crear carpeta para uploads
-RUN mkdir -p uploads
+RUN mkdir -p uploads && chmod +x entrypoint.sh
 
 # Exponer puerto
 EXPOSE 3000
@@ -128,25 +107,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
 
-# Iniciar aplicación con logs de diagnóstico detallados
-CMD ["sh", "-c", "\
-echo '============================================'; \
-echo '🔍 VERIFICACIÓN DE HERRAMIENTAS INSTALADAS'; \
-echo '============================================'; \
-echo ''; \
-echo '📋 PMD:'; \
-/usr/bin/pmd --version 2>&1 || echo '❌ PMD no disponible'; \
-echo ''; \
-echo '🐛 SpotBugs:'; \
-/opt/tools/spotbugs/bin/spotbugs -version 2>&1 || echo '❌ SpotBugs no disponible'; \
-echo ''; \
-echo '🔍 Semgrep:'; \
-/usr/bin/semgrep --version 2>&1 || echo '❌ Semgrep no disponible'; \
-echo ''; \
-echo '📦 Maven:'; \
-mvn --version 2>&1 | head -1 || echo '❌ Maven no disponible'; \
-echo ''; \
-echo '============================================'; \
-echo 'Iniciando servidor...'; \
-echo ''; \
-node dist/main.js"]
+# Usar exec form (JSON) para mejor manejo de señales OS
+ENTRYPOINT ["/app/entrypoint.sh"]
