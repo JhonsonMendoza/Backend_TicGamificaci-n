@@ -54,14 +54,12 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
     -o pmd-7.0.0.zip "https://downloads.sourceforge.net/project/pmd/pmd/7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 && \
     echo "✓ PMD descargado, extrayendo..." && \
     unzip -q pmd-7.0.0.zip -d /opt/tools && \
-    echo "✓ PMD extraído, creando estructura..." && \
     PMD_DIR=$(find /opt/tools -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
-    if [ -z "$PMD_DIR" ]; then echo "❌ Error: No se encontró PMD"; ls -la /opt/tools; exit 1; fi && \
-    echo "Directorio encontrado: $PMD_DIR" && \
-    mv "$PMD_DIR"/bin/pmd /opt/tools/bin/pmd && \
-    chmod +x /opt/tools/bin/pmd && \
-    which pmd || ln -sf /opt/tools/bin/pmd /usr/bin/pmd && \
-    which pmd && pmd --version && \
+    if [ -z "$PMD_DIR" ]; then echo "❌ Error: No se encontró PMD"; exit 1; fi && \
+    mv "$PMD_DIR" /opt/tools/pmd && \
+    chmod -R +x /opt/tools/pmd/bin && \
+    ln -sf /opt/tools/pmd/bin/pmd /usr/bin/pmd && \
+    /usr/bin/pmd --version && \
     echo "✅ PMD instalado correctamente"
 
 

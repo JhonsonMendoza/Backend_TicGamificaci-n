@@ -590,12 +590,12 @@ export class ToolService {
       let pmdAvailable = false;
       let pmdVersion = '';
       
-      // Rutas en orden de prioridad - Docker primero, con /usr/bin como opción principal
+      // Rutas en orden de prioridad
       const possiblePaths = [
-        '/usr/bin/pmd',        // Binario copiado directamente (PRIMERO)
-        '/opt/tools/bin/pmd',  // Symlink de Docker
-        '/usr/local/bin/pmd',  // Symlink alternativo
-        '/opt/tools/pmd/bin/pmd',  // Ruta directa Docker
+        '/usr/bin/pmd',        // Symlink a binario real (PRIMERO)
+        '/opt/tools/pmd/bin/pmd',  // Ruta directa en Docker
+        '/opt/tools/bin/pmd',  // Alternativo
+        '/usr/local/bin/pmd',  // Alternativo
         'pmd',  // Comando global
         path.join(process.env.PROGRAMFILES || '', 'pmd/bin/pmd'),
         path.join(process.env.APPDATA || '', 'npm/pmd'),
