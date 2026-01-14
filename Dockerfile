@@ -39,30 +39,38 @@ RUN apk add --no-cache \
 RUN apk add --no-cache unzip tar wget && \
     mkdir -p /opt/tools
 
-# Instalar PMD desde versión estable conocida
+# Instalar PMD 7.0.0 con verificación robusta
 RUN echo "📥 Descargando PMD 7.0.0..." && \
     mkdir -p /opt/tools && \
-    cd /opt/tools && \
-    curl -L --max-time 300 --retry 3 \
-    -o pmd.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" && \
-    if [ ! -f pmd.zip ]; then echo "❌ Descarga fallida"; exit 1; fi && \
-    ls -lh pmd.zip && \
-    unzip -q pmd.zip && \
-    PMD_DIR=$(ls -d pmd-* 2>/dev/null | head -1) && \
-    if [ -z "$PMD_DIR" ]; then echo "❌ Error extrayendo PMD"; exit 1; fi && \
-    echo "✓ PMD extraído: $PMD_DIR" && \
+    cd /tmp && \
+    curl -L --max-time 300 --retry 5 --connect-timeout 30 \
+    -o pmd-7.0.0.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" && \
+    if [ ! -f pmd-7.0.0.zip ]; then \
+        echo "❌ Descarga de GitHub fallida, intentando sourceforge..."; \
+        curl -L --max-time 300 --retry 5 --connect-timeout 30 \
+        "https://downloads.sourceforge.net/project/pmd/pmd/7.0.0/pmd-dist-7.0.0-bin.zip" \
+        -o pmd-7.0.0.zip || exit 1; \
+    fi && \
+    echo "✓ PMD descargado: $(ls -lh pmd-7.0.0.zip)" && \
+    unzip -q pmd-7.0.0.zip -d /opt/tools && \
+    echo "✓ PMD extraído" && \
+    ls -la /opt/tools/ && \
+    PMD_DIR="/opt/tools/pmd-bin-7.0.0" && \
+    if [ ! -d "$PMD_DIR" ]; then \
+        PMD_DIR=$(find /opt/tools -maxdepth 1 -type d -name "pmd-*" | head -1); \
+        if [ -z "$PMD_DIR" ]; then echo "❌ Error extrayendo PMD"; exit 1; fi; \
+        ln -sf "$PMD_DIR" /opt/tools/pmd-bin-7.0.0; \
+    fi && \
+    echo "✓ PMD directorio: $PMD_DIR" && \
     chmod +x "$PMD_DIR/bin/pmd" && \
-    ln -sf /opt/tools/$PMD_DIR /opt/tools/pmd-bin-7.0.0 && \
-    ln -sf /opt/tools/$PMD_DIR/bin/pmd /usr/local/bin/pmd && \
-    echo "✓ Enlaces simbólicos creados" && \
-    echo "📋 Verificando PMD..." && \
-    /opt/tools/$PMD_DIR/bin/pmd --version 2>&1 && \
-    /usr/local/bin/pmd --version 2>&1 && \
-    ls -la /opt/tools/pmd-bin-7.0.0/ && \
-    echo "✅ PMD instalado y verificado exitosamente" && \
-    which pmd && echo "PMD PATH: $(which pmd)" && \
-    export PATH="/opt/tools/$PMD_DIR/bin:/opt/tools/pmd-bin-7.0.0/bin:$PATH" && \
-    echo "export PATH=\"/opt/tools/pmd-bin-7.0.0/bin:$PATH\"" >> /etc/profile
+    chmod +x "$PMD_DIR/bin/run.sh" && \
+    ln -sf "$PMD_DIR/bin/pmd" /usr/local/bin/pmd && \
+    echo "✓ Symlink creado" && \
+    echo "📋 Verificando instalación de PMD..." && \
+    "$PMD_DIR/bin/pmd" --version 2>&1 | head -5 && \
+    /usr/local/bin/pmd --version 2>&1 | head -5 && \
+    which pmd && \
+    echo "✅ PMD instalado y funcionando correctamente"
 
 # Instalar SpotBugs desde versión estable (sourceforge como alternativa)
 RUN echo "Descargando SpotBugs..." && \
@@ -94,8 +102,8 @@ RUN echo "Instalando Semgrep..."; \
     semgrep --version && \
     echo "✓ Semgrep instalado exitosamente"
 
-# Configurar PATH global para herramientas de análisis
-ENV PATH="/opt/tools/pmd-bin-7.0.0/bin:/opt/tools/spotbugs-4.8.3/bin:${PATH}"
+# Configurar PATH global para todas las herramientas de análisis
+ENV PATH="/opt/tools/pmd-bin-7.0.0/bin:/usr/local/bin:${PATH}"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
@@ -121,4 +129,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
 
 # Iniciar aplicación con logs de diagnóstico
-CMD ["sh", "-c", "pmd --version && semgrep --version && node dist/main.js"]
+CMD ["sh", "-c", "echo '🔍 Verificando herramientas instaladas...' && \
+    echo '📋 PMD:' && pmd --version && \
+    echo '🐛 SpotBugs:' && spotbugs -version && \
+    echo '🔍 Semgrep:' && semgrep --version && \
+    echo '✅ Todas las herramientas están listas' && \
+    echo 'Iniciando servidor...' && \
+    node dist/main.js"]
