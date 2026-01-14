@@ -38,12 +38,14 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
     -o pmd-dist-7.0.0-bin.zip "https://downloads.sourceforge.net/project/pmd/pmd/7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1) && \
     echo "✓ PMD descargado, extrayendo..." && \
     unzip -q pmd-dist-7.0.0-bin.zip -d /tmp && \
-    ls -la /tmp | grep pmd && \
-    mv /tmp/pmd-* /opt/tools/pmd || { ls -la /tmp/; echo "❌ Error: No se encontró directorio PMD"; exit 1; } && \
+    echo "📂 Contenido de /tmp después de unzip:" && \
+    ls -la /tmp | grep -E "pmd|^d" && \
+    mv /tmp/pmd-bin-* /opt/tools/pmd && \
+    echo "✅ Directorio movido a /opt/tools/pmd" && \
     ls -la /opt/tools/pmd && \
     chmod -R +x /opt/tools/pmd/bin && \
     /opt/tools/pmd/bin/pmd --version && \
-    echo "✅ PMD ($(cat /opt/tools/pmd/bin/pmd | grep -m1 version)) instalado en /opt/tools/pmd"
+    echo "✅ PMD instalado en /opt/tools/pmd"
 
 # ============ INSTALAR SPOTBUGS EN BUILDER ============
 RUN echo "📥 Descargando SpotBugs 4.8.3..." && \
@@ -55,8 +57,10 @@ RUN echo "📥 Descargando SpotBugs 4.8.3..." && \
     -o spotbugs-4.8.3.zip "https://sourceforge.net/projects/spotbugs/files/spotbugs/4.8.3/spotbugs-4.8.3.zip/download" 2>&1) && \
     echo "✓ SpotBugs descargado, extrayendo..." && \
     unzip -q spotbugs-4.8.3.zip -d /tmp && \
-    ls -la /tmp | grep spotbugs && \
-    mv /tmp/spotbugs-* /opt/tools/spotbugs || { ls -la /tmp/; echo "❌ Error: No se encontró directorio SpotBugs"; exit 1; } && \
+    echo "📂 Contenido de /tmp después de unzip:" && \
+    ls -la /tmp | grep -E "spotbugs|^d" && \
+    mv /tmp/spotbugs-* /opt/tools/spotbugs && \
+    echo "✅ Directorio movido a /opt/tools/spotbugs" && \
     ls -la /opt/tools/spotbugs && \
     chmod -R +x /opt/tools/spotbugs/bin && \
     /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 && \
