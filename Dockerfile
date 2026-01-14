@@ -36,46 +36,32 @@ RUN apk add --no-cache \
 RUN apk add --no-cache unzip tar wget && \
     mkdir -p /opt/tools
 
-# Instalar PMD (con fallback desde múltiples fuentes)
+# Instalar PMD desde Maven Central (source confiable)
 RUN set -e; \
     PMD_VERSION="7.0.0"; \
-    PMD_URL1="https://github.com/pmd/pmd/releases/download/pmd_releases/${PMD_VERSION}/pmd-dist-${PMD_VERSION}.zip"; \
-    PMD_URL2="https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_VERSION}/pmd-dist-${PMD_VERSION}.zip"; \
-    echo "Intentando descargar PMD desde $PMD_URL1"; \
-    if ! curl -L --connect-timeout 15 --max-time 60 -o /tmp/pmd.zip "$PMD_URL1" 2>/dev/null || [ ! -s /tmp/pmd.zip ]; then \
-        echo "Fallback: Intentando URL alternativa"; \
-        curl -L --connect-timeout 15 --max-time 60 -o /tmp/pmd.zip "$PMD_URL2"; \
-    fi; \
-    if [ -f /tmp/pmd.zip ] && [ -s /tmp/pmd.zip ]; then \
-        unzip -q /tmp/pmd.zip -d /opt/tools && \
-        ln -sf /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh /usr/local/bin/pmd && \
-        echo "PMD instalado exitosamente"; \
-    else \
-        echo "ADVERTENCIA: No se pudo instalar PMD"; \
-        mkdir -p /opt/tools/pmd-${PMD_VERSION}/bin && \
-        echo "#!/bin/bash\necho 'PMD no disponible - usar detección directa'" > /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh && \
-        chmod +x /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh && \
-        ln -sf /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh /usr/local/bin/pmd; \
-    fi; \
-    rm -f /tmp/pmd.zip /tmp/pmd* && \
+    echo "Descargando PMD desde Maven Central..."; \
+    curl -fL --connect-timeout 30 --max-time 120 \
+      "https://repo.maven.apache.org/maven2/net/sourceforge/pmd/pmd-dist/${PMD_VERSION}/pmd-dist-${PMD_VERSION}.zip" \
+      -o /tmp/pmd.zip && \
+    unzip -q /tmp/pmd.zip -d /opt/tools && \
+    chmod +x /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh && \
+    ln -sf /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh /usr/local/bin/pmd && \
+    echo "✓ PMD instalado exitosamente" && \
+    rm -f /tmp/pmd.zip && \
     rm -rf /tmp/*
 
-# Instalar SpotBugs (con fallback desde múltiples fuentes)
+# Instalar SpotBugs desde Maven Central (source confiable)
 RUN set -e; \
     SPOTBUGS_VERSION="4.8.3"; \
-    SB_URL1="https://github.com/spotbugs/spotbugs/releases/download/${SPOTBUGS_VERSION}/spotbugs-${SPOTBUGS_VERSION}.tgz"; \
-    echo "Intentando descargar SpotBugs desde $SB_URL1"; \
-    if ! curl -L --connect-timeout 15 --max-time 60 -o /tmp/spotbugs.tgz "$SB_URL1" 2>/dev/null || [ ! -s /tmp/spotbugs.tgz ]; then \
-        echo "ADVERTENCIA: No se pudo descargar SpotBugs"; \
-        mkdir -p /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin; \
-        echo "#!/bin/bash\necho 'SpotBugs no disponible - usar detección directa'" > /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs; \
-        chmod +x /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs; \
-    else \
-        tar -xzf /tmp/spotbugs.tgz -C /opt/tools && \
-        echo "SpotBugs instalado exitosamente"; \
-    fi; \
+    echo "Descargando SpotBugs desde Maven Central..."; \
+    curl -fL --connect-timeout 30 --max-time 120 \
+      "https://repo.maven.apache.org/maven2/com/github/spotbugs/spotbugs/${SPOTBUGS_VERSION}/spotbugs-${SPOTBUGS_VERSION}.tgz" \
+      -o /tmp/spotbugs.tgz && \
+    tar -xzf /tmp/spotbugs.tgz -C /opt/tools && \
+    chmod +x /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs && \
     ln -sf /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs /usr/local/bin/spotbugs && \
-    rm -f /tmp/spotbugs* && \
+    echo "✓ SpotBugs instalado exitosamente" && \
+    rm -f /tmp/spotbugs.tgz && \
     rm -rf /tmp/*
 
 # Instalar Semgrep desde apk y pip (con fallback)
