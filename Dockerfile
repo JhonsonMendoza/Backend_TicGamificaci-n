@@ -58,6 +58,8 @@ RUN echo "📥 Descargando SpotBugs..." && \
     chmod -R +x /opt/tools/spotbugs/bin && \
     /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 && \
     echo "✅ SpotBugs instalado en builder"
+
+# ============ ETAPA 2: RUNTIME ============
 FROM node:20-alpine
 
 WORKDIR /app
