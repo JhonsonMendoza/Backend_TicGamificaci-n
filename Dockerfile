@@ -36,45 +36,8 @@ RUN apk add --no-cache \
 RUN apk add --no-cache unzip tar wget && \
     mkdir -p /opt/tools
 
-# Instalar PMD (con fallback suave)
-RUN set -e; \
-    PMD_VERSION="7.0.0"; \
-    echo "Descargando PMD..."; \
-    if curl -fL --connect-timeout 30 --max-time 120 \
-      "https://github.com/pmd/pmd/releases/download/pmd_releases/${PMD_VERSION}/pmd-bin-${PMD_VERSION}.zip" \
-      -o /tmp/pmd.zip 2>/dev/null && [ -s /tmp/pmd.zip ]; then \
-        unzip -q /tmp/pmd.zip -d /opt/tools && \
-        chmod +x /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh && \
-        ln -sf /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh /usr/local/bin/pmd && \
-        echo "✓ PMD instalado exitosamente"; \
-    else \
-        echo "⚠ PMD no disponible, usará detección directa"; \
-        mkdir -p /opt/tools/pmd-${PMD_VERSION}/bin && \
-        echo "#!/bin/sh" > /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh && \
-        chmod +x /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh && \
-        ln -sf /opt/tools/pmd-${PMD_VERSION}/bin/pmd.sh /usr/local/bin/pmd; \
-    fi; \
-    rm -f /tmp/pmd.zip && rm -rf /tmp/*
-
-# Instalar SpotBugs (con fallback suave)
-RUN set -e; \
-    SPOTBUGS_VERSION="4.8.3"; \
-    echo "Descargando SpotBugs..."; \
-    if curl -fL --connect-timeout 30 --max-time 120 \
-      "https://github.com/spotbugs/spotbugs/releases/download/${SPOTBUGS_VERSION}/spotbugs-${SPOTBUGS_VERSION}.tgz" \
-      -o /tmp/spotbugs.tgz 2>/dev/null && [ -s /tmp/spotbugs.tgz ]; then \
-        tar -xzf /tmp/spotbugs.tgz -C /opt/tools && \
-        chmod +x /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs && \
-        ln -sf /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs /usr/local/bin/spotbugs && \
-        echo "✓ SpotBugs instalado exitosamente"; \
-    else \
-        echo "⚠ SpotBugs no disponible, usará detección directa"; \
-        mkdir -p /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin && \
-        echo "#!/bin/sh" > /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs && \
-        chmod +x /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs && \
-        ln -sf /opt/tools/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs /usr/local/bin/spotbugs; \
-    fi; \
-    rm -f /tmp/spotbugs.tgz && rm -rf /tmp/*
+# Instalar PMD y SpotBugs desde APK (Alpine Linux packages - más confiable)
+RUN apk add --no-cache pmd spotbugs 2>&1 || echo "⚠ Algunas herramientas no disponibles en APK"
 
 # Instalar Semgrep desde apk y pip (con fallback)
 RUN apk add --no-cache py3-semgrep 2>/dev/null || \
