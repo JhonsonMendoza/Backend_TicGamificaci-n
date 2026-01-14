@@ -46,7 +46,7 @@ import { User } from './auth/entities/user.entity';
         // IMPORTANT: en producción recomendamos DB_SYNCHRONIZE=false y usar migraciones.
         synchronize: configService.get('DB_SYNCHRONIZE') !== 'false', // Solo sincronizar si no es explícitamente false
         logging: configService.get<boolean>('DB_LOGGING') === true || configService.get('DB_LOGGING') === 'true' ? true : false,
-        ssl: configService.get<boolean>('DB_SSL') === true || configService.get('DB_SSL') === 'true' ? true : false,
+        ssl: configService.get('DB_SSL') === 'true' || configService.get<boolean>('DB_SSL') === true ? { rejectUnauthorized: false } : false,
         dropSchema: false,
         // Configuraciones adicionales para la resiliencia
         retryAttempts: Number(configService.get<number>('DB_RETRY_ATTEMPTS') || 3),
