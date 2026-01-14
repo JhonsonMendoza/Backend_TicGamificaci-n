@@ -1126,11 +1126,11 @@ export class ToolService {
   private normalizeSpotBugsFinding(bugInstance: any): any {
     try {
       // Extraer información del BugInstance
-      const type = bugInstance.$?.type || bugInstance.type || '';
-      const priority = bugInstance.$?.priority || bugInstance.priority || 'unknown';
-      const rank = bugInstance.$?.rank || bugInstance.rank || '';
-      const abbrev = bugInstance.$?.abbrev || bugInstance.abbrev || '';
-      const category = bugInstance.$?.category || bugInstance.category || '';
+      const type = bugInstance.$?.type || '';
+      const priority = bugInstance.$?.priority || 'unknown';
+      const rank = bugInstance.$?.rank || '';
+      const abbrev = bugInstance.$?.abbrev || '';
+      const category = bugInstance.$?.category || '';
       
       // Extraer mensaje/descripción
       let message = `[${type}] ${abbrev || category || 'Bug'} (Priority: ${priority})`;
@@ -1140,51 +1140,55 @@ export class ToolService {
       let startLine = null;
       let endLine = null;
       
-      // SpotBugs puede tener SourceLine en varios lugares:
-      // 1. Directamente en BugInstance
-      // 2. Dentro de Class/Method/Field
-      
-      const extractSourceInfo = (node: any) => {
-        if (!node) return;
-        
-        // Si node tiene propiedades $ (atributos XML)
-        if (node.$) {
-          if (node.$.sourcefile) sourcefile = node.$.sourcefile;
-          if (node.$.start) startLine = parseInt(node.$.start);
-          if (node.$.end) endLine = parseInt(node.$.end);
-        }
-        
-        // Si node tiene un array SourceLine
-        if (node.SourceLine) {
-          const sourceLines = Array.isArray(node.SourceLine) ? node.SourceLine : [node.SourceLine];
-          for (const sl of sourceLines) {
-            if (sl && sl.$) {
-              if (!sourcefile && sl.$.sourcefile) sourcefile = sl.$.sourcefile;
-              if (!startLine && sl.$.start) startLine = parseInt(sl.$.start);
-              if (!endLine && sl.$.end) endLine = parseInt(sl.$.end);
-            }
+      // SpotBugs estructura: BugInstance > Class/Method > SourceLine
+      // Buscar SourceLine en Class primero
+      if (bugInstance.Class && Array.isArray(bugInstance.Class)) {
+        const classNode = bugInstance.Class[0];
+        if (classNode.SourceLine && Array.isArray(classNode.SourceLine)) {
+          const sourceLineNode = classNode.SourceLine[0];
+          if (sourceLineNode.$) {
+            sourcefile = sourceLineNode.$.sourcefile || sourcefile;
+            if (!startLine && sourceLineNode.$.start) startLine = parseInt(sourceLineNode.$.start);
+            if (!endLine && sourceLineNode.$.end) endLine = parseInt(sourceLineNode.$.end);
           }
         }
-      };
-      
-      // Buscar en la estructura anidada
-      if (bugInstance.Class) {
-        const classNode = Array.isArray(bugInstance.Class) ? bugInstance.Class[0] : bugInstance.Class;
-        extractSourceInfo(classNode);
       }
       
-      if (bugInstance.Method) {
-        const methodNode = Array.isArray(bugInstance.Method) ? bugInstance.Method[0] : bugInstance.Method;
-        extractSourceInfo(methodNode);
+      // Buscar en Method si no encontró en Class
+      if (!sourcefile && bugInstance.Method && Array.isArray(bugInstance.Method)) {
+        const methodNode = bugInstance.Method[0];
+        if (methodNode.SourceLine && Array.isArray(methodNode.SourceLine)) {
+          const sourceLineNode = methodNode.SourceLine[0];
+          if (sourceLineNode.$) {
+            sourcefile = sourceLineNode.$.sourcefile || sourcefile;
+            if (!startLine && sourceLineNode.$.start) startLine = parseInt(sourceLineNode.$.start);
+            if (!endLine && sourceLineNode.$.end) endLine = parseInt(sourceLineNode.$.end);
+          }
+        }
       }
       
-      if (bugInstance.Field) {
-        const fieldNode = Array.isArray(bugInstance.Field) ? bugInstance.Field[0] : bugInstance.Field;
-        extractSourceInfo(fieldNode);
+      // Buscar en Field si no encontró en Class o Method
+      if (!sourcefile && bugInstance.Field && Array.isArray(bugInstance.Field)) {
+        const fieldNode = bugInstance.Field[0];
+        if (fieldNode.SourceLine && Array.isArray(fieldNode.SourceLine)) {
+          const sourceLineNode = fieldNode.SourceLine[0];
+          if (sourceLineNode.$) {
+            sourcefile = sourceLineNode.$.sourcefile || sourcefile;
+            if (!startLine && sourceLineNode.$.start) startLine = parseInt(sourceLineNode.$.start);
+            if (!endLine && sourceLineNode.$.end) endLine = parseInt(sourceLineNode.$.end);
+          }
+        }
       }
       
-      // Buscar SourceLine directo
-      extractSourceInfo(bugInstance);
+      // Buscar en SourceLine directo como último recurso
+      if (!sourcefile && bugInstance.SourceLine && Array.isArray(bugInstance.SourceLine)) {
+        const sourceLineNode = bugInstance.SourceLine[0];
+        if (sourceLineNode.$) {
+          sourcefile = sourceLineNode.$.sourcefile || sourcefile;
+          if (!startLine && sourceLineNode.$.start) startLine = parseInt(sourceLineNode.$.start);
+          if (!endLine && sourceLineNode.$.end) endLine = parseInt(sourceLineNode.$.end);
+        }
+      }
       
       // Normalizar a estructura esperada
       return {
@@ -1196,9 +1200,9 @@ export class ToolService {
         rank: rank,
         category: category,
         abbrev: abbrev,
-        sourcefile: sourcefile || '',
-        file: sourcefile || '',
-        path: sourcefile || '',
+        sourcefile: sourcefile,
+        file: sourcefile,
+        path: sourcefile,
         line: startLine,
         startLine: startLine,
         endLine: endLine,
