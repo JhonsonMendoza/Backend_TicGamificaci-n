@@ -593,7 +593,7 @@ export class ToolService {
       // Rutas en orden de prioridad
       const possiblePaths = [
         '/usr/bin/pmd',        // Symlink a binario real (PRIMERO)
-        '/opt/tools/pmd/bin/pmd',  // Ruta directa en Docker
+        '/opt/tools/pmd/bin/pmd',  // Ruta PRIMARIA en Docker - PROBAR PRIMERO
         '/opt/tools/bin/pmd',  // Alternativo
         '/usr/local/bin/pmd',  // Alternativo
         'pmd',  // Comando global
@@ -603,8 +603,14 @@ export class ToolService {
         'C:\\Program Files\\pmd\\bin\\pmd.bat'
       ];
       
-      // Buscar en rutas - con timeout reducido
-      for (const possiblePath of possiblePaths) {
+      // Reordenar: docker primero, luego windows, luego otros
+      const dockerPaths = possiblePaths.filter(p => p.startsWith('/opt/tools'));
+      const windowsPaths = possiblePaths.filter(p => p.includes('C:\\') || p.includes('Program Files'));
+      const otherPaths = possiblePaths.filter(p => !dockerPaths.includes(p) && !windowsPaths.includes(p));
+      const reorderedPaths = [...dockerPaths, ...otherPaths, ...windowsPaths];
+      
+      // Buscar en rutas - con timeout AUMENTADO (8 segundos total)
+      for (const possiblePath of reorderedPaths) {
         try {
           // Saltar rutas obvias de Windows en non-Windows
           if (process.platform !== 'win32' && (possiblePath.includes('C:\\') || possiblePath.includes('Program Files') || possiblePath.includes('APPDATA'))) {
@@ -624,7 +630,7 @@ export class ToolService {
           
           if (process.platform === 'win32') {
             const batchPath = expandedPath.endsWith('.bat') ? expandedPath : `${expandedPath}.bat`;
-            const versionCheck = await execAsync(`"${batchPath}" --version`, { timeout: 3000 });
+            const versionCheck = await execAsync(`"${batchPath}" --version`, { timeout: 8000, shell: 'cmd.exe' });
             pmdCommand = `"${batchPath}"`;
             pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
             pmdAvailable = true;
@@ -632,8 +638,8 @@ export class ToolService {
             this.logger.log(`    Versión: ${pmdVersion}`);
             break;
           } else {
-            // En Linux/Docker, usar absolute path
-            const versionCheck = await execAsync(`"${expandedPath}" --version`, { timeout: 3000, shell: '/bin/bash' });
+            // En Linux/Docker, usar absolute path con shell explícito
+            const versionCheck = await execAsync(`"${expandedPath}" --version`, { timeout: 8000, shell: '/bin/sh' });
             pmdCommand = `"${expandedPath}"`;
             pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
             pmdAvailable = true;
@@ -642,7 +648,7 @@ export class ToolService {
             break;
           }
         } catch (e) {
-          this.logger.debug(`    ❌ Error en: ${possiblePath} - ${(e as any).message.substring(0, 40)}`);
+          this.logger.debug(`    ❌ Error en: ${possiblePath} - ${(e as any).message.substring(0, 60)}`);
           // Continuar con siguiente opción
         }
       }
@@ -976,32 +982,27 @@ export class ToolService {
       let semgrepCommand = 'semgrep';
       let semgrepAvailable = false;
       
-      // Intentar primero con comando directo semgrep
-      try {
-        await execAsync('semgrep --version', { timeout: 5000 });
-        this.logger.log('✅ semgrep command found (global)');
-        semgrepAvailable = true;
-      } catch (error) {
-        // Si falla, intentar con rutas específicas
-        this.logger.log('⚠️ semgrep command not found, trying specific paths...');
-        
-        const possibleSemgrepPaths = [
-          'semgrep',             // Comando directo (instalado por pip3)
-          '/usr/bin/semgrep',    // Instalación estándar de pip3
-          '/usr/local/bin/semgrep',  // Alternativo
-          '/opt/tools/bin/semgrep'   // Docker alternativo
-        ];
-        
-        for (const sbPath of possibleSemgrepPaths) {
-          try {
-            await execAsync(`"${sbPath}" --version`, { timeout: 5000 });
-            semgrepCommand = `"${sbPath}"`;
-            this.logger.log(`✅ semgrep found at: ${sbPath}`);
-            semgrepAvailable = true;
-            break;
-          } catch (e) {
-            this.logger.debug(`❌ semgrep not found at: ${sbPath}`);
-          }
+      // Intentar rutas en orden de probabilidad (Docker first, then system)
+      const possibleSemgrepPaths = [
+        '/usr/bin/semgrep',           // PRIMARIO - instalación estándar de pip3 en Docker
+        '/usr/local/bin/semgrep',     // Alternativo
+        '/opt/tools/bin/semgrep',     // Docker alternativo
+        'semgrep'                     // Comando directo en PATH (como fallback)
+      ];
+      
+      this.logger.log('⚠️ Buscando semgrep en rutas específicas...');
+      
+      for (const sbPath of possibleSemgrepPaths) {
+        try {
+          this.logger.debug(`    Intentando: ${sbPath}`);
+          await execAsync(`"${sbPath}" --version`, { timeout: 8000, shell: '/bin/sh' });
+          semgrepCommand = `"${sbPath}"`;
+          this.logger.log(`✅ semgrep encontrado en: ${sbPath}`);
+          semgrepAvailable = true;
+          break;
+        } catch (e) {
+          this.logger.debug(`❌ semgrep no encontrado en: ${sbPath} - ${(e as any).message.substring(0, 40)}`);
+        }
         }
         
         // Si aún no lo encontró, intentar con python
