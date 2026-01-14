@@ -78,16 +78,10 @@ RUN set -e; \
     rm -f /tmp/spotbugs* && \
     rm -rf /tmp/*
 
-# Instalar Semgrep desde pip (más confiable)
-RUN set -e; \
-    echo "Instalando Semgrep"; \
-    if pip3 install --no-cache-dir semgrep==1.45.0 2>&1 | tee /tmp/semgrep-install.log; then \
-        echo "Semgrep instalado exitosamente"; \
-    else \
-        echo "ADVERTENCIA: Instalación de Semgrep incompleta, continuando"; \
-        pip3 install --no-cache-dir semgrep || echo "Semgrep no disponible"; \
-    fi; \
-    rm -f /tmp/semgrep-install.log
+# Instalar Semgrep desde apk y pip (con fallback)
+RUN apk add --no-cache py3-semgrep 2>/dev/null || \
+    pip3 install --no-cache-dir --break-system-packages semgrep 2>/dev/null || \
+    echo "ADVERTENCIA: Semgrep no disponible, continuando"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
@@ -113,4 +107,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
 
 # Iniciar aplicación con logs de diagnóstico
-CMD ["sh", "-c", "echo '=== Verificación de herramientas de análisis ===' && (pmd --version 2>/dev/null || echo 'PMD: No disponible (usará detección directa)') && (spotbugs -version 2>/dev/null || echo 'SpotBugs: No disponible (usará detección directa)') && (semgrep --version 2>/dev/null || echo 'Semgrep: No disponible') && echo '===' && node dist/main.js"]
+CMD ["sh", "-c", "echo '=== Verificación de herramientas de análisis ===' && (test -x /usr/local/bin/pmd && pmd --version 2>&1 || echo '⚠ PMD: No disponible (usará detección directa)') && (test -x /usr/local/bin/spotbugs && spotbugs -version 2>&1 | head -1 || echo '⚠ SpotBugs: No disponible (usará detección directa)') && (which semgrep >/dev/null && semgrep --version || echo '⚠ Semgrep: No disponible') && echo '===' && node dist/main.js"]
