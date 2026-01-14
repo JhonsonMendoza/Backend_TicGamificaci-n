@@ -1473,10 +1473,14 @@ export class ToolService {
   }
 
   private async findFiles(dir: string, pattern: string): Promise<string[]> {
-    // Implementación simple de búsqueda de archivos
+    // Implementación simple de búsqueda de archivos compatible con Windows y Linux
     try {
       const ext = pattern.includes('.') ? pattern.substring(pattern.lastIndexOf('.')) : pattern;
-      const { stdout } = await execAsync(`dir /s /b "${dir}\\*${ext}"`, { timeout: 10000 });
+      const command = process.platform === 'win32'
+        ? `dir /s /b "${dir}\\*${ext}"`
+        : `find "${dir}" -name "*${ext}"`;
+      
+      const { stdout } = await execAsync(command, { timeout: 10000, shell: true } as any);
       return stdout.trim().split('\n').filter(line => line.trim());
     } catch {
       return [];
@@ -1493,7 +1497,12 @@ export class ToolService {
     for (const srcPath of possiblePaths) {
       if (await this.fileExists(srcPath)) {
         try {
-          const { stdout } = await execAsync(`dir /s /b "${srcPath}\\*.java"`, { timeout: 5000 });
+          // Usar comando compatible con Windows y Linux
+          const command = process.platform === 'win32'
+            ? `dir /s /b "${srcPath}\\*.java"`
+            : `find "${srcPath}" -name "*.java"`;
+          
+          const { stdout } = await execAsync(command, { timeout: 5000, shell: true } as any);
           if (stdout.trim()) {
             return srcPath;
           }
@@ -1513,7 +1522,12 @@ export class ToolService {
       
       for (const ext of extensions) {
         try {
-          const { stdout } = await execAsync(`dir /s /b "${projectDir}\\${ext}"`, { timeout: 5000 });
+          // Usar comando compatible con Windows y Linux
+          const command = process.platform === 'win32'
+            ? `dir /s /b "${projectDir}\\${ext}"`
+            : `find "${projectDir}" -name "${ext}"`;
+          
+          const { stdout } = await execAsync(command, { timeout: 5000, shell: true } as any);
           if (stdout.trim()) {
             return true;
           }
