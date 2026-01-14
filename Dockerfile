@@ -45,7 +45,7 @@ RUN echo "Descargando PMD..." && \
     unzip -q /tmp/pmd.zip -d /opt/tools && \
     PMD_DIR=$(ls -d /opt/tools/pmd-* 2>/dev/null | head -1) && \
     chmod +x "$PMD_DIR/bin/pmd" && \
-    chmod +x "$PMD_DIR/bin/run.sh" && \
+    chmod +x "$PMD_DIR/bin/run.sh" 2>/dev/null || true && \
     ln -sf "$PMD_DIR/bin/pmd" /usr/local/bin/pmd && \
     pmd --version && \
     echo "✓ PMD instalado en $PMD_DIR"
@@ -62,7 +62,7 @@ RUN echo "Descargando SpotBugs..." && \
     unzip -q /tmp/spotbugs.zip -d /opt/tools && \
     SPOTBUGS_DIR=$(ls -d /opt/tools/spotbugs-* 2>/dev/null | head -1) && \
     chmod +x "$SPOTBUGS_DIR/bin/spotbugs" && \
-    chmod +x "$SPOTBUGS_DIR/bin/run.sh" && \
+    chmod +x "$SPOTBUGS_DIR/bin/run.sh" 2>/dev/null || true && \
     ln -sf "$SPOTBUGS_DIR/bin/spotbugs" /usr/local/bin/spotbugs && \
     spotbugs -version && \
     echo "✓ SpotBugs instalado en $SPOTBUGS_DIR"
