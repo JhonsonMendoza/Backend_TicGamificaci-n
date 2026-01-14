@@ -63,7 +63,7 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
     fi && \
     echo "✓ PMD directorio: $PMD_DIR" && \
     chmod +x "$PMD_DIR/bin/pmd" && \
-    chmod +x "$PMD_DIR/bin/run.sh" && \
+    chmod +x "$PMD_DIR/bin/run.sh" 2>/dev/null || true && \
     ln -sf "$PMD_DIR/bin/pmd" /usr/local/bin/pmd && \
     echo "✓ Symlink creado" && \
     echo "📋 Verificando instalación de PMD..." && \
