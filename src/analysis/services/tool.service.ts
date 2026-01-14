@@ -618,16 +618,28 @@ export class ToolService {
       }
       
       if (!pmdAvailable) {
-        this.logger.warn(`⚠️  PMD no está disponible en el sistema`);
-        this.logger.log('    PMD se saltará. Se usarán otros análisis disponibles.');
-        this.logger.log('═══════════════════════════════════════');
-        
-        return {
-          tool: 'pmd',
-          success: false,
-          findings: [],
-          error: 'PMD no está instalado o no está en el PATH del sistema'
-        };
+        // ÚLTIMO INTENTO: ruta absoluta Docker (fallback definitivo)
+        try {
+          this.logger.warn(`⚠️  Último intento: verificando ruta absoluta Docker...`);
+          const dockerPath = '/opt/tools/pmd-bin-7.0.0/bin/pmd';
+          const versionCheck = await execAsync(`"${dockerPath}" --version`, { timeout: 5000, shell: '/bin/bash' });
+          pmdCommand = `"${dockerPath}"`;
+          pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
+          pmdAvailable = true;
+          this.logger.log(`    ✅ PMD encontrado en ruta absoluta Docker: ${dockerPath}`);
+          this.logger.log(`    Versión: ${pmdVersion}`);
+        } catch (e) {
+          this.logger.warn(`⚠️  PMD no está disponible en el sistema`);
+          this.logger.log('    PMD se saltará. Se usarán otros análisis disponibles.');
+          this.logger.log('═══════════════════════════════════════');
+          
+          return {
+            tool: 'pmd',
+            success: false,
+            findings: [],
+            error: 'PMD no está instalado o no está en el PATH del sistema'
+          };
+        }
       }
 
       // Paso 2: Encontrar directorio de fuentes Java

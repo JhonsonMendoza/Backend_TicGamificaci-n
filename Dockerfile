@@ -38,18 +38,18 @@ RUN apk add --no-cache unzip tar wget && \
 
 # Instalar PMD desde versión estable conocida
 RUN echo "Descargando PMD..." && \
-    mkdir -p /tmp/pmd_download && \
-    curl -L --retry 5 --connect-timeout 10 --max-time 120 \
-    "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" \
-    -o /tmp/pmd.zip && \
-    unzip -q /tmp/pmd.zip -d /opt/tools && \
-    PMD_DIR=$(ls -d /opt/tools/pmd-* 2>/dev/null | head -1) && \
+    mkdir -p /opt/tools && \
+    cd /opt/tools && \
+    curl -L -o pmd.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" && \
+    unzip -q pmd.zip && \
+    rm pmd.zip && \
+    PMD_DIR=$(ls -d pmd-* 2>/dev/null | head -1) && \
     chmod +x "$PMD_DIR/bin/pmd" && \
-    chmod +x "$PMD_DIR/bin/run.sh" 2>/dev/null || true && \
-    ln -sf "$PMD_DIR/bin/pmd" /usr/local/bin/pmd && \
+    ln -sf /opt/tools/$PMD_DIR/bin/pmd /usr/local/bin/pmd && \
+    ln -sf /opt/tools/$PMD_DIR /opt/tools/pmd-bin-7.0.0 && \
+    echo "✓ PMD instalado en /opt/tools/$PMD_DIR" && \
     echo "Verificando PMD..." && \
-    "$PMD_DIR/bin/pmd" --version && \
-    echo "✓ PMD instalado en $PMD_DIR"
+    /opt/tools/$PMD_DIR/bin/pmd --version 2>&1 | head -1
 
 # Instalar SpotBugs desde versión estable (sourceforge como alternativa)
 RUN echo "Descargando SpotBugs..." && \
