@@ -52,19 +52,26 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
     -o pmd-7.0.0.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 || \
     curl -L --max-time 300 --retry 5 --connect-timeout 30 \
     -o pmd-7.0.0.zip "https://downloads.sourceforge.net/project/pmd/pmd/7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 && \
-    unzip -q pmd-7.0.0.zip -d /tmp && \
-    PMD_DIR=$(find /tmp -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
-    if [ -z "$PMD_DIR" ]; then echo "❌ Error: No se encontró PMD"; exit 1; fi && \
-    mv "$PMD_DIR" /opt/tools/pmd && \
+    echo "✓ PMD descargado, extrayendo..." && \
+    unzip -q pmd-7.0.0.zip -d /opt/tools && \
+    echo "✓ PMD extraído, creando estructura..." && \
+    ls -la /opt/tools/ && \
+    PMD_EXTRACTED=$(find /opt/tools -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
+    if [ -z "$PMD_EXTRACTED" ]; then echo "❌ Error: No se encontró directorio pmd-bin-*"; find /opt/tools -maxdepth 2 -type d; exit 1; fi && \
+    if [ "$PMD_EXTRACTED" != "/opt/tools/pmd" ]; then mv "$PMD_EXTRACTED" /opt/tools/pmd; fi && \
     chmod -R +x /opt/tools/pmd/bin && \
+    ls -la /opt/tools/pmd/bin/ && \
     ln -sf /opt/tools/pmd/bin/pmd /opt/tools/bin/pmd && \
     ln -sf /opt/tools/pmd/bin/pmd /usr/local/bin/pmd && \
-    echo "✅ PMD instalado en /opt/tools/pmd"
+    echo "✅ PMD instalado y symlinks creados"
 
 # Verificar PMD funciona
-RUN echo "Verificando PMD..." && \
-    /opt/tools/pmd/bin/pmd --version 2>&1 || \
-    (echo "⚠️ PMD verificación inicial falló" && exit 1)
+RUN echo "🔍 Verificando PMD..." && \
+    echo "   Probando: /opt/tools/pmd/bin/pmd --version" && \
+    /opt/tools/pmd/bin/pmd --version || (echo "❌ Error directo con PMD"; exit 1) && \
+    echo "   Probando: /usr/local/bin/pmd --version" && \
+    /usr/local/bin/pmd --version || (echo "❌ Error con symlink"; exit 1) && \
+    echo "✅ PMD verificado correctamente"
 
 # ============ INSTALAR SPOTBUGS ============
 RUN echo "📥 Descargando SpotBugs..." && \
