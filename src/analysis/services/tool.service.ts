@@ -113,7 +113,14 @@ export class ToolService {
         this.logger.log(`✅ pom.xml encontrado en: ${pomPath}`);
         // Usar la carpeta donde está el pom.xml
         const mavenProjectDir = path.dirname(pomPath);
-        return await this.runSpotBugsWithMaven(mavenProjectDir);
+        const mavenResult = await this.runSpotBugsWithMaven(mavenProjectDir);
+        
+        // Si Maven falla pero hay resultados de SpotBugs directo, usarlos
+        if (!mavenResult.success) {
+          this.logger.log('⚠️ Maven falló, intentando SpotBugs directo...');
+          return await this.runSpotBugsDirectly(projectDir);
+        }
+        return mavenResult;
       } else {
         this.logger.log('⚠️ pom.xml no encontrado');
         return await this.runSpotBugsDirectly(projectDir);

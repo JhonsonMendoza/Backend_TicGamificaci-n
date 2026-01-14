@@ -20,6 +20,9 @@ RUN npm run build
 # Etapa 2: Runtime - Imagen final con herramientas de análisis
 FROM node:20-alpine
 
+# Invalidar caché de docker para forzar rebuild completo
+ARG CACHEBUST=1
+
 WORKDIR /app
 
 # Instalar dependencias del sistema necesarias para herramientas de análisis
@@ -37,19 +40,26 @@ RUN apk add --no-cache unzip tar wget && \
     mkdir -p /opt/tools
 
 # Instalar PMD desde versión estable conocida
-RUN echo "Descargando PMD..." && \
+RUN echo "📥 Descargando PMD 7.0.0..." && \
     mkdir -p /opt/tools && \
     cd /opt/tools && \
-    curl -L -o pmd.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" && \
+    curl -L --max-time 300 --retry 3 \
+    -o pmd.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" && \
+    if [ ! -f pmd.zip ]; then echo "❌ Descarga fallida"; exit 1; fi && \
+    ls -lh pmd.zip && \
     unzip -q pmd.zip && \
-    rm pmd.zip && \
     PMD_DIR=$(ls -d pmd-* 2>/dev/null | head -1) && \
+    if [ -z "$PMD_DIR" ]; then echo "❌ Error extrayendo PMD"; exit 1; fi && \
+    echo "✓ PMD extraído: $PMD_DIR" && \
     chmod +x "$PMD_DIR/bin/pmd" && \
-    ln -sf /opt/tools/$PMD_DIR/bin/pmd /usr/local/bin/pmd && \
     ln -sf /opt/tools/$PMD_DIR /opt/tools/pmd-bin-7.0.0 && \
-    echo "✓ PMD instalado en /opt/tools/$PMD_DIR" && \
-    echo "Verificando PMD..." && \
-    /opt/tools/$PMD_DIR/bin/pmd --version 2>&1 | head -1
+    ln -sf /opt/tools/$PMD_DIR/bin/pmd /usr/local/bin/pmd && \
+    echo "✓ Enlaces simbólicos creados" && \
+    echo "📋 Verificando PMD..." && \
+    /opt/tools/$PMD_DIR/bin/pmd --version 2>&1 && \
+    /usr/local/bin/pmd --version 2>&1 && \
+    ls -la /opt/tools/pmd-bin-7.0.0/ && \
+    echo "✅ PMD instalado y verificado exitosamente"
 
 # Instalar SpotBugs desde versión estable (sourceforge como alternativa)
 RUN echo "Descargando SpotBugs..." && \
