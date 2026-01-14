@@ -397,7 +397,13 @@ export class ToolService {
         }
         
         // Normalizar los findings de SpotBugs
-        const normalizedFindings = findings.map((bug: any) => this.normalizeSpotBugsFinding(bug));
+        this.logger.log(`🔄 Normalizando ${findings.length} findings de SpotBugs...`);
+        const normalizedFindings = findings.map((bug: any, idx: number) => {
+          const normalized = this.normalizeSpotBugsFinding(bug);
+          this.logger.debug(`  [${idx}] file=${normalized.sourcefile}, line=${normalized.startLine}, type=${normalized.type}`);
+          return normalized;
+        });
+        this.logger.log(`✅ Normalización completada`);
         
         return {
           tool: 'spotbugs',
@@ -536,7 +542,13 @@ export class ToolService {
         this.logger.log(`✅ SpotBugs encontró ${findings.length} bugs`);
         
         // Normalizar los findings de SpotBugs
-        const normalizedFindings = findings.map((bug: any) => this.normalizeSpotBugsFinding(bug));
+        this.logger.log(`🔄 Normalizando ${findings.length} findings de SpotBugs (directo)...`);
+        const normalizedFindings = findings.map((bug: any, idx: number) => {
+          const normalized = this.normalizeSpotBugsFinding(bug);
+          this.logger.debug(`  [${idx}] file=${normalized.sourcefile}, line=${normalized.startLine}, type=${normalized.type}`);
+          return normalized;
+        });
+        this.logger.log(`✅ Normalización completada`);
         
         return {
           tool: 'spotbugs',
