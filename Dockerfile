@@ -55,22 +55,23 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
     unzip -q pmd-7.0.0.zip -d /opt/tools && \
     echo "✓ PMD extraído" && \
     ls -la /opt/tools/ && \
-    PMD_DIR="/opt/tools/pmd-bin-7.0.0" && \
-    if [ ! -d "$PMD_DIR" ]; then \
-        PMD_DIR=$(find /opt/tools -maxdepth 1 -type d -name "pmd-*" | head -1); \
-        if [ -z "$PMD_DIR" ]; then echo "❌ Error extrayendo PMD"; exit 1; fi; \
-        ln -sf "$PMD_DIR" /opt/tools/pmd-bin-7.0.0; \
-    fi && \
+    PMD_DIR=$(find /opt/tools -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
+    if [ -z "$PMD_DIR" ]; then echo "❌ Error: No se encontró PMD"; exit 1; fi && \
     echo "✓ PMD directorio: $PMD_DIR" && \
     chmod +x "$PMD_DIR/bin/pmd" && \
     chmod +x "$PMD_DIR/bin/run.sh" 2>/dev/null || true && \
     ln -sf "$PMD_DIR/bin/pmd" /usr/local/bin/pmd && \
-    echo "✓ Symlink creado" && \
+    echo "✓ Symlink creado: /usr/local/bin/pmd -> $PMD_DIR/bin/pmd" && \
     echo "📋 Verificando instalación de PMD..." && \
-    "$PMD_DIR/bin/pmd" --version 2>&1 | head -5 && \
-    /usr/local/bin/pmd --version 2>&1 | head -5 && \
+    export JAVA_HOME=/usr/lib/jvm/java-11-openjdk && \
+    "$PMD_DIR/bin/pmd" --version && \
+    pmd --version && \
     which pmd && \
-    echo "✅ PMD instalado y funcionando correctamente"
+    echo "✅ PMD instalado y verificado"
+
+# Configurar JAVA_HOME y PATH
+ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk \
+    PATH="/opt/tools/pmd-bin-7.0.0/bin:/usr/local/bin:${PATH}"
 
 # Instalar SpotBugs desde versión estable (sourceforge como alternativa)
 RUN echo "Descargando SpotBugs..." && \
@@ -96,14 +97,15 @@ RUN echo "Instalando Maven..." && \
     mvn --version && \
     echo "✓ Maven instalado exitosamente"
 
-# Instalar Semgrep desde pip
-RUN echo "Instalando Semgrep..."; \
-    pip3 install --no-cache-dir --break-system-packages semgrep && \
-    semgrep --version && \
+# Instalar Semgrep como CLI
+RUN echo "📦 Instalando Semgrep como CLI..." && \
+    pip3 install --no-cache-dir --break-system-packages semgrep 2>&1 && \
+    python3 -m pip install --upgrade --no-cache-dir --break-system-packages semgrep 2>&1 && \
+    which semgrep || echo "Buscando en rutas de pip..." && \
+    ls -la /usr/local/bin/ | grep -i semgrep || true && \
+    find /usr -name "semgrep" -type f 2>/dev/null | head -5 || true && \
+    python3 -m semgrep --version && \
     echo "✓ Semgrep instalado exitosamente"
-
-# Configurar PATH global para todas las herramientas de análisis
-ENV PATH="/opt/tools/pmd-bin-7.0.0/bin:/usr/local/bin:${PATH}"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
@@ -130,9 +132,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 # Iniciar aplicación con logs de diagnóstico
 CMD ["sh", "-c", "echo '🔍 Verificando herramientas instaladas...' && \
-    echo '📋 PMD:' && pmd --version && \
-    echo '🐛 SpotBugs:' && spotbugs -version && \
-    echo '🔍 Semgrep:' && semgrep --version && \
-    echo '✅ Todas las herramientas están listas' && \
+    echo '📋 PMD:' && (pmd --version || echo '❌ PMD no disponible') && \
+    echo '🐛 SpotBugs:' && (spotbugs -version || echo '❌ SpotBugs no disponible') && \
+    echo '🔍 Semgrep:' && (semgrep --version || python3 -m semgrep --version || echo '❌ Semgrep no disponible') && \
+    echo '✅ Verificación completada' && \
     echo 'Iniciando servidor...' && \
     node dist/main.js"]
