@@ -17,7 +17,47 @@ COPY src ./src
 # Compilar TypeScript
 RUN npm run build
 
-# Etapa 2: Runtime - Imagen final con herramientas de análisis PRE-COMPILADAS
+# ============ INSTALAR HERRAMIENTAS EN BUILDER ============
+# Instalar dependencias necesarias para herramientas en builder
+RUN apk add --no-cache \
+    openjdk11 \
+    curl \
+    unzip \
+    bash
+
+# Crear directorio de herramientas
+RUN mkdir -p /opt/tools/bin
+
+# ============ INSTALAR PMD EN BUILDER ============
+RUN echo "📥 Descargando PMD 7.0.0..." && \
+    cd /tmp && \
+    curl -L --max-time 300 --retry 5 --connect-timeout 30 \
+    -o pmd-7.0.0.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 || \
+    curl -L --max-time 300 --retry 5 --connect-timeout 30 \
+    -o pmd-7.0.0.zip "https://downloads.sourceforge.net/project/pmd/pmd/7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 && \
+    echo "✓ PMD descargado, extrayendo..." && \
+    unzip -q pmd-7.0.0.zip -d /opt/tools && \
+    PMD_DIR=$(find /opt/tools -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
+    if [ -z "$PMD_DIR" ]; then echo "❌ Error: No se encontró PMD"; exit 1; fi && \
+    mv "$PMD_DIR" /opt/tools/pmd && \
+    chmod -R +x /opt/tools/pmd/bin && \
+    /opt/tools/pmd/bin/pmd --version && \
+    echo "✅ PMD instalado en builder"
+
+# ============ INSTALAR SPOTBUGS EN BUILDER ============
+RUN echo "📥 Descargando SpotBugs..." && \
+    cd /tmp && \
+    curl -L --retry 5 --connect-timeout 10 --max-time 120 \
+    -o spotbugs.zip "https://github.com/spotbugs/spotbugs/releases/download/4.8.3/spotbugs-4.8.3.zip" 2>&1 || \
+    curl -L --retry 5 --connect-timeout 10 --max-time 120 \
+    -o spotbugs.zip "https://sourceforge.net/projects/spotbugs/files/spotbugs/4.8.3/spotbugs-4.8.3.zip/download" 2>&1 && \
+    unzip -q spotbugs.zip -d /tmp && \
+    SPOTBUGS_DIR=$(find /tmp -maxdepth 1 -type d -name "spotbugs-*" | head -1) && \
+    if [ -z "$SPOTBUGS_DIR" ]; then echo "❌ Error: No se encontró SpotBugs"; exit 1; fi && \
+    mv "$SPOTBUGS_DIR" /opt/tools/spotbugs && \
+    chmod -R +x /opt/tools/spotbugs/bin && \
+    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 && \
+    echo "✅ SpotBugs instalado en builder"
 FROM node:20-alpine
 
 WORKDIR /app
