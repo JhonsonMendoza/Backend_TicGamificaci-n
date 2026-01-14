@@ -62,14 +62,16 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
     chmod +x "$PMD_DIR/bin/run.sh" 2>/dev/null || true && \
     ln -sf "$PMD_DIR/bin/pmd" /usr/local/bin/pmd && \
     echo "✓ Symlink creado: /usr/local/bin/pmd -> $PMD_DIR/bin/pmd" && \
+    echo "✓ Actualizando PATH con directorio PMD..." && \
+    export PATH="$PMD_DIR/bin:/usr/local/bin:${PATH}" && \
     echo "📋 Verificando instalación de PMD..." && \
-    export JAVA_HOME=/usr/lib/jvm/java-11-openjdk && \
     "$PMD_DIR/bin/pmd" --version && \
+    /usr/local/bin/pmd --version && \
     echo "✅ PMD instalado y verificado"
 
-# Configurar JAVA_HOME y PATH
-ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk \
-    PATH="/opt/tools/pmd-bin-7.0.0/bin:/usr/local/bin:${PATH}"
+# Configurar JAVA_HOME y PATH dinámicamente después de instalar PMD
+ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk
+# Path será actualizado después de descubrir la ruta real de PMD
 
 # Instalar SpotBugs desde versión estable (sourceforge como alternativa)
 RUN echo "Descargando SpotBugs..." && \
@@ -110,6 +112,9 @@ chmod +x /usr/local/bin/semgrep && \
     echo "📋 Verificando Semgrep..." && \
     python3 -c "import semgrep; print('✓ Semgrep Python module available')" && \
     echo "✅ Semgrep instalado y verificado"
+
+# Asegurar que los symlinks están disponibles en PATH
+ENV PATH="/usr/local/bin:/usr/bin:/bin:${PATH}"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
