@@ -214,26 +214,44 @@ export class AchievementsService {
 
   // Obtener todos los logros del usuario
   async getAchievementsByUserId(userId: number): Promise<Achievement[]> {
-    return this.achievementRepository.find({
+    const achievements = await this.achievementRepository.find({
       where: { userId },
       order: { unlockedAt: 'DESC' },
     });
+    
+    // Llenar pointsReward desde definiciones si es NULL
+    return achievements.map(a => ({
+      ...a,
+      pointsReward: a.pointsReward ?? ACHIEVEMENTS_DEFINITIONS[a.type as AchievementType]?.pointsReward ?? 0,
+    }));
   }
 
   // Obtener logros desbloqueados del usuario
   async getUnlockedAchievements(userId: number): Promise<Achievement[]> {
-    return this.achievementRepository.find({
+    const achievements = await this.achievementRepository.find({
       where: { userId, isUnlocked: true },
       order: { unlockedAt: 'DESC' },
     });
+    
+    // Llenar pointsReward desde definiciones si es NULL
+    return achievements.map(a => ({
+      ...a,
+      pointsReward: a.pointsReward ?? ACHIEVEMENTS_DEFINITIONS[a.type as AchievementType]?.pointsReward ?? 0,
+    }));
   }
 
   // Obtener logros bloqueados (con progreso)
   async getLockedAchievements(userId: number): Promise<Achievement[]> {
-    return this.achievementRepository.find({
+    const achievements = await this.achievementRepository.find({
       where: { userId, isUnlocked: false },
       order: { createdAt: 'ASC' },
     });
+    
+    // Llenar pointsReward desde definiciones si es NULL
+    return achievements.map(a => ({
+      ...a,
+      pointsReward: a.pointsReward ?? ACHIEVEMENTS_DEFINITIONS[a.type as AchievementType]?.pointsReward ?? 0,
+    }));
   }
 
   // Contar puntos totales de logros desbloqueados

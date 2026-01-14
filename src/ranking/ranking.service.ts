@@ -47,33 +47,46 @@ export class RankingService {
   }> {
     console.log('=== Getting global rankings ===');
     
-    // Obtener usuarios sin cargar relaciones de una vez (para evitar problemas con TypeORM)
+    // Obtener usuarios activos
     const users = await this.userRepository.find({
       where: { isActive: true },
     });
     
     console.log('Total users found:', users.length);
     
-    // Inicializar análisis vacíos para cálculos
-    users.forEach(u => {
-      if (!u.analyses) {
-        u.analyses = [];
-      }
-    });
+    // Obtener TODOS los análisis (no solo por userId)
+    const allAnalyses = await this.analysisRepository.find();
+    console.log('Total analyses found:', allAnalyses.length);
 
-    // Calcular estadísticas para cada usuario
+    // Para cada usuario, asociar análisis por userId O por student name/email
     const userStats = users
-      .map(user => ({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        profilePicture: user.profilePicture,
-        university: user.university,
-        career: user.career,
-        totalAnalyses: user.getTotalAnalyses(),
-        averageScore: user.getAverageScore(),
-        totalIssuesFound: user.getTotalIssuesFound(),
-      }))
+      .map(user => {
+        // Obtener análisis del usuario (por userId o por nombre/email como student)
+        const userAnalyses = allAnalyses.filter(a => 
+          a.userId === user.id || 
+          a.student === user.email || 
+          a.student === user.name ||
+          a.student === `${user.name}`
+        );
+        
+        const totalAnalyses = userAnalyses.length;
+        const averageScore = totalAnalyses > 0 
+          ? userAnalyses.reduce((sum, a) => sum + (a.qualityScore || 0), 0) / totalAnalyses
+          : 0;
+        const totalIssuesFound = userAnalyses.reduce((sum, a) => sum + (a.totalIssues || 0), 0);
+        
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          profilePicture: user.profilePicture,
+          university: user.university,
+          career: user.career,
+          totalAnalyses,
+          averageScore,
+          totalIssuesFound,
+        };
+      })
       .filter(user => user.totalAnalyses > 0) // Solo usuarios con análisis
       .sort((a, b) => {
         // Ordenar por score promedio (descendente), luego por total de análisis
@@ -89,7 +102,7 @@ export class RankingService {
       }));
 
     // Calcular estadísticas globales
-    const globalStats = await this.calculateGlobalStats(users);
+    const globalStats = await this.calculateGlobalStats(allAnalyses);
 
     return {
       rankings: userStats,
@@ -102,30 +115,53 @@ export class RankingService {
     position: number;
     totalUsers: number;
   }> {
+    // Obtener usuario
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      return {
+        userRank: null,
+        position: 0,
+        totalUsers: 0,
+      };
+    }
+
+    // Obtener TODOS los análisis
+    const allAnalyses = await this.analysisRepository.find();
+
+    // Construir ranking similar a getGlobalRankings
     const allUsers = await this.userRepository.find({
       where: { isActive: true },
     });
-    
-    // Inicializar analyses vacío para cálculos
-    allUsers.forEach(u => {
-      if (!u.analyses) {
-        u.analyses = [];
-      }
-    });
 
-    const sortedUsers = allUsers
-      .map(user => ({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        profilePicture: user.profilePicture,
-        university: user.university,
-        career: user.career,
-        totalAnalyses: user.getTotalAnalyses(),
-        averageScore: user.getAverageScore(),
-        totalIssuesFound: user.getTotalIssuesFound(),
-      }))
-      .filter(user => user.totalAnalyses > 0)
+    const userStats = allUsers
+      .map(u => {
+        // Obtener análisis del usuario
+        const userAnalyses = allAnalyses.filter(a => 
+          a.userId === u.id || 
+          a.student === u.email || 
+          a.student === u.name ||
+          a.student === `${u.name}`
+        );
+        
+        const totalAnalyses = userAnalyses.length;
+        const averageScore = totalAnalyses > 0 
+          ? userAnalyses.reduce((sum, a) => sum + (a.qualityScore || 0), 0) / totalAnalyses
+          : 0;
+        const totalIssuesFound = userAnalyses.reduce((sum, a) => sum + (a.totalIssues || 0), 0);
+        
+        return {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          profilePicture: u.profilePicture,
+          university: u.university,
+          career: u.career,
+          totalAnalyses,
+          averageScore,
+          totalIssuesFound,
+        };
+      })
+      .filter(u => u.totalAnalyses > 0)
       .sort((a, b) => {
         if (Math.abs(a.averageScore - b.averageScore) < 0.01) {
           return b.totalAnalyses - a.totalAnalyses;
@@ -133,23 +169,23 @@ export class RankingService {
         return b.averageScore - a.averageScore;
       });
 
-    const userIndex = sortedUsers.findIndex(user => user.id === userId);
+    const userIndex = userStats.findIndex(u => u.id === userId);
     
     if (userIndex === -1) {
       return {
         userRank: null,
         position: 0,
-        totalUsers: sortedUsers.length,
+        totalUsers: userStats.length,
       };
     }
 
     return {
       userRank: {
-        ...sortedUsers[userIndex],
+        ...userStats[userIndex],
         rank: userIndex + 1,
       },
       position: userIndex + 1,
-      totalUsers: sortedUsers.length,
+      totalUsers: userStats.length,
     };
   }
 
@@ -233,15 +269,15 @@ export class RankingService {
       }));
   }
 
-  private async calculateGlobalStats(users: User[]): Promise<GlobalStats> {
-    const totalUsers = users.length;
+  private async calculateGlobalStats(analyses: AnalysisRun[]): Promise<GlobalStats> {
+    const totalAnalyses = analyses.length;
     
-    // Obtener todas las estadísticas de análisis
-    const allAnalyses = users.flatMap(user => user.analyses || []);
-    const totalAnalyses = allAnalyses.length;
+    // Contar usuarios únicos que tienen análisis
+    const uniqueStudents = new Set(analyses.map(a => a.student).filter(s => s));
+    const totalUsers = uniqueStudents.size;
     
     // Calcular promedio global de calidad
-    const qualityScores = allAnalyses
+    const qualityScores = analyses
       .filter(analysis => analysis.qualityScore !== null && analysis.qualityScore !== undefined)
       .map(analysis => typeof analysis.qualityScore === 'string' ? parseFloat(analysis.qualityScore) : analysis.qualityScore);
     
@@ -250,27 +286,44 @@ export class RankingService {
       : 0;
 
     // Total de issues encontrados
-    const totalIssuesFound = allAnalyses.reduce((total, analysis) => total + (analysis.totalIssues || 0), 0);
+    const totalIssuesFound = analyses.reduce((total, analysis) => total + (analysis.totalIssues || 0), 0);
 
-    // Usuario más activo
-    const userAnalysesCounts = users.map(user => ({
-      name: user.name,
-      analysesCount: user.getTotalAnalyses(),
-    })).filter(user => user.analysesCount > 0);
+    // Estudiante más activo (más análisis)
+    const studentCounts = new Map<string, number>();
+    analyses.forEach(analysis => {
+      if (analysis.student) {
+        studentCounts.set(analysis.student, (studentCounts.get(analysis.student) || 0) + 1);
+      }
+    });
 
-    const mostActiveUser = userAnalysesCounts.length > 0
-      ? userAnalysesCounts.reduce((max, user) => user.analysesCount > max.analysesCount ? user : max)
-      : { name: 'N/A', analysesCount: 0 };
+    let mostActiveUser = { name: 'N/A', analysesCount: 0 };
+    if (studentCounts.size > 0) {
+      const [name, count] = Array.from(studentCounts.entries())
+        .reduce((max, current) => current[1] > max[1] ? current : max);
+      mostActiveUser = { name, analysesCount: count };
+    }
 
-    // Usuario con mejor calidad
-    const userQualityScores = users.map(user => ({
-      name: user.name,
-      qualityScore: user.getAverageScore(),
-    })).filter(user => user.qualityScore > 0);
+    // Estudiante con mejor calidad (mejor score promedio)
+    const studentQualityMap = new Map<string, { scores: number[]; count: number }>();
+    analyses.forEach(analysis => {
+      if (analysis.student && analysis.qualityScore) {
+        const score = typeof analysis.qualityScore === 'string' ? parseFloat(analysis.qualityScore) : analysis.qualityScore;
+        const existing = studentQualityMap.get(analysis.student) || { scores: [], count: 0 };
+        existing.scores.push(score);
+        existing.count++;
+        studentQualityMap.set(analysis.student, existing);
+      }
+    });
 
-    const bestQualityUser = userQualityScores.length > 0
-      ? userQualityScores.reduce((max, user) => user.qualityScore > max.qualityScore ? user : max)
-      : { name: 'N/A', qualityScore: 0 };
+    let bestQualityUser = { name: 'N/A', qualityScore: 0 };
+    if (studentQualityMap.size > 0) {
+      const entries = Array.from(studentQualityMap.entries()).map(([name, data]) => ({
+        name,
+        qualityScore: data.scores.reduce((a, b) => a + b, 0) / data.scores.length,
+      }));
+      const best = entries.reduce((max, current) => current.qualityScore > max.qualityScore ? current : max);
+      bestQualityUser = best;
+    }
 
     return {
       totalUsers,

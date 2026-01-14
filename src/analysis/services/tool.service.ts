@@ -572,55 +572,58 @@ export class ToolService {
       let pmdAvailable = false;
       let pmdVersion = '';
       
-      // Intentar buscar PMD en rutas comunes (incluyendo Docker) PRIMERO
+      // Rutas en orden de prioridad - Docker first
       const possiblePaths = [
-        '/opt/tools/pmd-bin-7.0.0/bin/pmd',  // Docker path - primero
+        '/usr/local/bin/pmd',  // Symlink de Docker (PRIMERO)
+        '/opt/tools/pmd-bin-7.0.0/bin/pmd',  // Ruta directa Docker
+        'pmd',  // Comando global
         path.join(process.env.PROGRAMFILES || '', 'pmd/bin/pmd'),
-        '/usr/local/bin/pmd',
         path.join(process.env.APPDATA || '', 'npm/pmd'),
         path.join(process.env.HOME || '', '.local/bin/pmd'),
         'C:\\Program Files\\pmd\\bin\\pmd.bat'
       ];
       
-      // Try as global command first
-      try {
-        const versionResult = await execAsync('pmd --version', { timeout: 5000, shell: '/bin/sh' });
-        pmdVersion = versionResult.stdout.toString().trim().split('\n')[0];
-        this.logger.log(`    ✅ PMD disponible como comando global`);
-        this.logger.log(`    Versión: ${pmdVersion}`);
-        pmdAvailable = true;
-      } catch (versionError) {
-        this.logger.debug(`    ⚠️  PMD no encontrado como comando global: ${(versionError as any).message.substring(0, 50)}`);
-        
-        // Si no está en PATH, buscar en rutas específicas
-        for (const possiblePath of possiblePaths) {
-          try {
-            const expandedPath = possiblePath.replace(/\*/g, '7.0.0');
-            this.logger.debug(`    Intentando: ${expandedPath}`);
-            
-            if (process.platform === 'win32') {
-              const batchPath = expandedPath.endsWith('.bat') ? expandedPath : `${expandedPath}.bat`;
-              const versionCheck = await execAsync(`"${batchPath}" --version`, { timeout: 5000 });
-              pmdCommand = `"${batchPath}"`;
-              pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
-              pmdAvailable = true;
-              this.logger.log(`    ✅ PMD encontrado en: ${batchPath}`);
-              this.logger.log(`    Versión: ${pmdVersion}`);
-              break;
-            } else {
-              // En Linux/Docker, usar absolute path con shell explícito
-              const versionCheck = await execAsync(`"${expandedPath}" --version`, { timeout: 5000, shell: '/bin/bash' });
-              pmdCommand = `"${expandedPath}"`;
-              pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
-              pmdAvailable = true;
-              this.logger.log(`    ✅ PMD encontrado en: ${expandedPath}`);
-              this.logger.log(`    Versión: ${pmdVersion}`);
-              break;
-            }
-          } catch (e) {
-            this.logger.debug(`    ❌ No disponible en: ${possiblePath}`);
-            // Continuar con siguiente opción
+      // Buscar en rutas - con timeout reducido
+      for (const possiblePath of possiblePaths) {
+        try {
+          // Saltar rutas obvias de Windows en non-Windows
+          if (process.platform !== 'win32' && (possiblePath.includes('C:\\') || possiblePath.includes('Program Files') || possiblePath.includes('APPDATA'))) {
+            continue;
           }
+          
+          const expandedPath = possiblePath.replace(/\*/g, '7.0.0');
+          
+          // Verificar que el archivo existe antes de ejecutar
+          const fsSync = require('fs');
+          if (expandedPath !== 'pmd' && !fsSync.existsSync(expandedPath)) {
+            this.logger.debug(`    🔍 No existe: ${expandedPath}`);
+            continue;
+          }
+          
+          this.logger.debug(`    Intentando: ${expandedPath}`);
+          
+          if (process.platform === 'win32') {
+            const batchPath = expandedPath.endsWith('.bat') ? expandedPath : `${expandedPath}.bat`;
+            const versionCheck = await execAsync(`"${batchPath}" --version`, { timeout: 3000 });
+            pmdCommand = `"${batchPath}"`;
+            pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
+            pmdAvailable = true;
+            this.logger.log(`    ✅ PMD encontrado en: ${batchPath}`);
+            this.logger.log(`    Versión: ${pmdVersion}`);
+            break;
+          } else {
+            // En Linux/Docker, usar absolute path
+            const versionCheck = await execAsync(`"${expandedPath}" --version`, { timeout: 3000, shell: '/bin/bash' });
+            pmdCommand = `"${expandedPath}"`;
+            pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
+            pmdAvailable = true;
+            this.logger.log(`    ✅ PMD encontrado en: ${expandedPath}`);
+            this.logger.log(`    Versión: ${pmdVersion}`);
+            break;
+          }
+        } catch (e) {
+          this.logger.debug(`    ❌ Error en: ${possiblePath} - ${(e as any).message.substring(0, 40)}`);
+          // Continuar con siguiente opción
         }
       }
       
@@ -629,7 +632,7 @@ export class ToolService {
         try {
           this.logger.warn(`⚠️  Último intento: verificando ruta absoluta Docker...`);
           const dockerPath = '/opt/tools/pmd-bin-7.0.0/bin/pmd';
-          const versionCheck = await execAsync(`"${dockerPath}" --version`, { timeout: 5000, shell: '/bin/bash' });
+          const versionCheck = await execAsync(`"${dockerPath}" --version`, { timeout: 3000, shell: '/bin/bash' });
           pmdCommand = `"${dockerPath}"`;
           pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
           pmdAvailable = true;

@@ -59,7 +59,10 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
     /opt/tools/$PMD_DIR/bin/pmd --version 2>&1 && \
     /usr/local/bin/pmd --version 2>&1 && \
     ls -la /opt/tools/pmd-bin-7.0.0/ && \
-    echo "✅ PMD instalado y verificado exitosamente"
+    echo "✅ PMD instalado y verificado exitosamente" && \
+    which pmd && echo "PMD PATH: $(which pmd)" && \
+    export PATH="/opt/tools/$PMD_DIR/bin:/opt/tools/pmd-bin-7.0.0/bin:$PATH" && \
+    echo "export PATH=\"/opt/tools/pmd-bin-7.0.0/bin:$PATH\"" >> /etc/profile
 
 # Instalar SpotBugs desde versión estable (sourceforge como alternativa)
 RUN echo "Descargando SpotBugs..." && \
