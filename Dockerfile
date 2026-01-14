@@ -98,25 +98,9 @@ RUN apk add --no-cache maven && \
 # ============ INSTALAR SEMGREP ============
 RUN echo "📦 Instalando Semgrep via pip3..." && \
     pip3 install --no-cache-dir --break-system-packages semgrep && \
-    SEMGREP_BIN=$(python3 -c "import semgrep; import os; print(os.path.dirname(semgrep.__file__) + '/../../../bin/semgrep')") && \
-    if [ -f "$SEMGREP_BIN" ]; then \
-        cp "$SEMGREP_BIN" /usr/bin/semgrep && \
-        chmod +x /usr/bin/semgrep && \
-        echo "✅ Semgrep binario copiado a /usr/bin/semgrep"; \
-    else \
-        echo "⚠️ Binario no encontrado, buscando con which..."; \
-        SEMGREP_PATH=$(python3 -c "import shutil; print(shutil.which('semgrep') or '')") && \
-        if [ -n "$SEMGREP_PATH" ]; then \
-            cp "$SEMGREP_PATH" /usr/bin/semgrep && \
-            chmod +x /usr/bin/semgrep && \
-            echo "✅ Semgrep copiado desde $SEMGREP_PATH"; \
-        else \
-            echo "⚠️ Usando fallback: python -m semgrep"; \
-        fi; \
-    fi && \
-    echo "🔍 Verificando Semgrep..." && \
-    /usr/bin/semgrep --version 2>&1 || python3 -m semgrep --version && \
-    echo "✅ Semgrep listo"
+    echo "✅ Semgrep instalado" && \
+    semgrep --version && \
+    echo "✅ Semgrep verificado y listo"
 
 # Asegurar que los symlinks están disponibles en PATH
 ENV PATH="/opt/tools/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"

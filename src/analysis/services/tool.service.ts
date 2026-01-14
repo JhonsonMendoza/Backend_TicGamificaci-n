@@ -986,10 +986,10 @@ export class ToolService {
         this.logger.log('⚠️ semgrep command not found, trying specific paths...');
         
         const possibleSemgrepPaths = [
-          '/usr/bin/semgrep',        // Binario copiado directamente (PRIMERO)
-          '/opt/tools/bin/semgrep',  // Symlink de Docker
-          '/usr/local/bin/semgrep',  // Symlink alternativo de Docker
-          '/opt/tools/semgrep/bin/semgrep'
+          'semgrep',             // Comando directo (instalado por pip3)
+          '/usr/bin/semgrep',    // Instalación estándar de pip3
+          '/usr/local/bin/semgrep',  // Alternativo
+          '/opt/tools/bin/semgrep'   // Docker alternativo
         ];
         
         for (const sbPath of possibleSemgrepPaths) {
