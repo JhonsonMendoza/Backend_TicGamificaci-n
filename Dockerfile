@@ -135,13 +135,13 @@ echo '🔍 VERIFICACIÓN DE HERRAMIENTAS INSTALADAS'; \
 echo '============================================'; \
 echo ''; \
 echo '📋 PMD:'; \
-pmd --version 2>&1 || echo '❌ PMD no disponible'; \
+/usr/bin/pmd --version 2>&1 || echo '❌ PMD no disponible'; \
 echo ''; \
 echo '🐛 SpotBugs:'; \
-spotbugs -version 2>&1 || echo '❌ SpotBugs no disponible'; \
+/opt/tools/spotbugs/bin/spotbugs -version 2>&1 || echo '❌ SpotBugs no disponible'; \
 echo ''; \
 echo '🔍 Semgrep:'; \
-semgrep --version 2>&1 || python3 -c \"import semgrep; print('✓ Semgrep (Python)') \" 2>/dev/null || echo '❌ Semgrep no disponible'; \
+/usr/bin/semgrep --version 2>&1 || echo '❌ Semgrep no disponible'; \
 echo ''; \
 echo '📦 Maven:'; \
 mvn --version 2>&1 | head -1 || echo '❌ Maven no disponible'; \
