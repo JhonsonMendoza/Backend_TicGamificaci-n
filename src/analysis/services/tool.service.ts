@@ -159,11 +159,27 @@ export class ToolService {
     this.logger.log('📦 Proyecto Maven detectado - usando Maven para SpotBugs');
     
     try {
+      // Detectar comando Maven disponible
+      let mavenCmd = 'mvn';
+      try {
+        await execAsync('mvn --version', { timeout: 5000 });
+        this.logger.log('✅ Maven encontrado como comando global');
+      } catch (e) {
+        this.logger.warn('⚠️ Maven no encontrado en PATH, intentando /usr/bin/mvn');
+        mavenCmd = '/usr/bin/mvn';
+        try {
+          await execAsync('/usr/bin/mvn --version', { timeout: 5000 });
+          this.logger.log('✅ Maven encontrado en /usr/bin/mvn');
+        } catch (e2) {
+          throw new Error('Maven no disponible en el sistema');
+        }
+      }
+
       // Paso 1: Compilar proyecto Maven
       this.logger.log('🔨 Paso 1: Compilando proyecto Maven...');
       let compilationSucceeded = false;
       try {
-        const { stdout: compileStdout, stderr: compileStderr } = await execAsync('mvn clean compile', { cwd: projectDir, timeout: 180000 });
+        const { stdout: compileStdout, stderr: compileStderr } = await execAsync(`${mavenCmd} clean compile`, { cwd: projectDir, timeout: 180000 });
         this.logger.log('✅ Compilación Maven completada');
         
         if (compileStdout.includes('BUILD SUCCESS') || !compileStderr.toLowerCase().includes('[error]')) {
@@ -191,7 +207,7 @@ export class ToolService {
       this.logger.log('🔍 Paso 2: Ejecutando SpotBugs con Maven...');
       let spotbugsOutput = { stdout: '', stderr: '' };
       try {
-        spotbugsOutput = await execAsync('mvn spotbugs:spotbugs', { cwd: projectDir, timeout: 300000 });
+        spotbugsOutput = await execAsync(`${mavenCmd} spotbugs:spotbugs`, { cwd: projectDir, timeout: 300000 });
         this.logger.log('✅ SpotBugs completado (XML generado)');
       } catch (spotbugsError) {
         // SpotBugs con Maven puede fallar si encuentra bugs, pero el XML se genera de todos modos
