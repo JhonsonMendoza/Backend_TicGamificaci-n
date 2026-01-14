@@ -55,28 +55,15 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
     echo "✓ PMD descargado, extrayendo..." && \
     unzip -q pmd-7.0.0.zip -d /opt/tools && \
     echo "✓ PMD extraído, creando estructura..." && \
-    ls -la /opt/tools/ && \
-    PMD_EXTRACTED=$(find /opt/tools -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
-    if [ -z "$PMD_EXTRACTED" ]; then echo "❌ Error: No se encontró directorio pmd-bin-*"; find /opt/tools -maxdepth 2 -type d; exit 1; fi && \
-    if [ "$PMD_EXTRACTED" != "/opt/tools/pmd" ]; then mv "$PMD_EXTRACTED" /opt/tools/pmd; fi && \
-    chmod -R +x /opt/tools/pmd/bin && \
-    ls -la /opt/tools/pmd/bin/ && \
-    ln -sf /opt/tools/pmd/bin/pmd /opt/tools/bin/pmd && \
-    ln -sf /opt/tools/pmd/bin/pmd /usr/local/bin/pmd && \
-    echo "✅ PMD instalado y symlinks creados"
+    PMD_DIR=$(find /opt/tools -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
+    if [ -z "$PMD_DIR" ]; then echo "❌ Error: No se encontró PMD"; ls -la /opt/tools; exit 1; fi && \
+    echo "Directorio encontrado: $PMD_DIR" && \
+    mv "$PMD_DIR"/bin/pmd /opt/tools/bin/pmd && \
+    chmod +x /opt/tools/bin/pmd && \
+    which pmd || ln -sf /opt/tools/bin/pmd /usr/bin/pmd && \
+    which pmd && pmd --version && \
+    echo "✅ PMD instalado correctamente"
 
-# Verificar PMD funciona
-RUN echo "🔍 Verificando PMD..." && \
-    if [ -f /opt/tools/pmd/bin/pmd ]; then \
-        echo "   ✓ Archivo ejecutable encontrado: /opt/tools/pmd/bin/pmd"; \
-        echo "   Intentando ejecutar..."; \
-        /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 || echo "⚠️ PMD versión falló pero el binario existe"; \
-    else \
-        echo "❌ Archivo /opt/tools/pmd/bin/pmd no existe"; \
-        ls -la /opt/tools/pmd/bin/ 2>/dev/null || echo "Dir /opt/tools/pmd/bin no existe"; \
-        exit 1; \
-    fi && \
-    echo "✅ PMD verificado"
 
 # ============ INSTALAR SPOTBUGS ============
 RUN echo "📥 Descargando SpotBugs..." && \
@@ -112,40 +99,26 @@ RUN apk add --no-cache maven && \
 
 # ============ INSTALAR SEMGREP ============
 RUN echo "📦 Instalando Semgrep via pip3..." && \
-    pip3 install --no-cache-dir --break-system-packages semgrep 2>&1 && \
-    echo "✓ Semgrep instalado via pip3" && \
-    python3 -c "import semgrep; print('✓ Semgrep module loaded')" && \
-    echo "📍 Buscando binario ejecutable de Semgrep..." && \
-    SEMGREP_BIN=$(which semgrep 2>/dev/null) && \
-    if [ -n "$SEMGREP_BIN" ] && [ -f "$SEMGREP_BIN" ] && [ -x "$SEMGREP_BIN" ]; then \
-        echo "✓ Binario encontrado via which: $SEMGREP_BIN"; \
-        ln -sf "$SEMGREP_BIN" /opt/tools/bin/semgrep; \
-        ln -sf "$SEMGREP_BIN" /usr/local/bin/semgrep; \
-        echo "✅ Symlinks creados para binario real"; \
+    pip3 install --no-cache-dir --break-system-packages semgrep && \
+    SEMGREP_BIN=$(python3 -c "import semgrep; import os; print(os.path.dirname(semgrep.__file__) + '/../../../bin/semgrep')") && \
+    if [ -f "$SEMGREP_BIN" ]; then \
+        cp "$SEMGREP_BIN" /usr/bin/semgrep && \
+        chmod +x /usr/bin/semgrep && \
+        echo "✅ Semgrep binario copiado a /usr/bin/semgrep"; \
     else \
-        echo "⚠️ Binario no encontrado via which, buscando en rutas estándar..."; \
-        for path in /usr/bin/semgrep /usr/local/bin/semgrep /root/.local/bin/semgrep; do \
-            if [ -f "$path" ] && [ -x "$path" ]; then \
-                echo "✓ Encontrado en: $path"; \
-                ln -sf "$path" /opt/tools/bin/semgrep; \
-                ln -sf "$path" /usr/local/bin/semgrep; \
-                SEMGREP_BIN="$path"; \
-                break; \
-            fi; \
-        done; \
-        if [ -z "$SEMGREP_BIN" ]; then \
-            echo "⚠️ Binario no encontrado, creando wrapper como fallback..."; \
-            printf '#!/bin/sh\nexec python3 -m semgrep "$@"\n' > /opt/tools/bin/semgrep; \
-            chmod +x /opt/tools/bin/semgrep; \
-            ln -sf /opt/tools/bin/semgrep /usr/local/bin/semgrep; \
-            echo "✅ Wrapper creado como fallback"; \
+        echo "⚠️ Binario no encontrado, buscando con which..."; \
+        SEMGREP_PATH=$(python3 -c "import shutil; print(shutil.which('semgrep') or '')") && \
+        if [ -n "$SEMGREP_PATH" ]; then \
+            cp "$SEMGREP_PATH" /usr/bin/semgrep && \
+            chmod +x /usr/bin/semgrep && \
+            echo "✅ Semgrep copiado desde $SEMGREP_PATH"; \
         else \
-            echo "✅ Symlinks creados"; \
+            echo "⚠️ Usando fallback: python -m semgrep"; \
         fi; \
     fi && \
     echo "🔍 Verificando Semgrep..." && \
-    semgrep --version 2>&1 | head -1 && \
-    echo "✅ Semgrep instalado y verificado"
+    /usr/bin/semgrep --version 2>&1 || python3 -m semgrep --version && \
+    echo "✅ Semgrep listo"
 
 # Asegurar que los symlinks están disponibles en PATH
 ENV PATH="/opt/tools/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"

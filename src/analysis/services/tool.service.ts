@@ -590,10 +590,11 @@ export class ToolService {
       let pmdAvailable = false;
       let pmdVersion = '';
       
-      // Rutas en orden de prioridad - Docker first
+      // Rutas en orden de prioridad - Docker primero, con /usr/bin como opción principal
       const possiblePaths = [
-        '/opt/tools/bin/pmd',  // Symlink de Docker (PRIMERO)
-        '/usr/local/bin/pmd',  // Symlink alternativo de Docker
+        '/usr/bin/pmd',        // Binario copiado directamente (PRIMERO)
+        '/opt/tools/bin/pmd',  // Symlink de Docker
+        '/usr/local/bin/pmd',  // Symlink alternativo
         '/opt/tools/pmd/bin/pmd',  // Ruta directa Docker
         'pmd',  // Comando global
         path.join(process.env.PROGRAMFILES || '', 'pmd/bin/pmd'),
@@ -985,9 +986,9 @@ export class ToolService {
         this.logger.log('⚠️ semgrep command not found, trying specific paths...');
         
         const possibleSemgrepPaths = [
-          '/opt/tools/bin/semgrep',  // Symlink de Docker (PRIMERO)
+          '/usr/bin/semgrep',        // Binario copiado directamente (PRIMERO)
+          '/opt/tools/bin/semgrep',  // Symlink de Docker
           '/usr/local/bin/semgrep',  // Symlink alternativo de Docker
-          '/usr/bin/semgrep',
           '/opt/tools/semgrep/bin/semgrep'
         ];
         
