@@ -92,8 +92,8 @@ RUN set -e; \
 # Copiar package.json y package-lock.json
 COPY package*.json ./
 
-# Instalar solo dependencias de producción
-RUN npm ci --only=production
+# Instalar todas las dependencias (webpack necesita algunas durante runtime)
+RUN npm ci
 
 # Copiar la aplicación compilada desde el builder
 COPY --from=builder /app/dist ./dist
