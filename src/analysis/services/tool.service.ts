@@ -396,11 +396,14 @@ export class ToolService {
           this.logger.log(`   📍 Primer bug: ${firstBugPreview}`);
         }
         
+        // Normalizar los findings de SpotBugs
+        const normalizedFindings = findings.map((bug: any) => this.normalizeSpotBugsFinding(bug));
+        
         return {
           tool: 'spotbugs',
-          success: findings.length > 0,
-          findings: findings,
-          findingsCount: findings.length
+          success: normalizedFindings.length > 0,
+          findings: normalizedFindings,
+          findingsCount: normalizedFindings.length
         };
       } catch (parseError) {
         this.logger.error(`❌ Error parseando XML: ${parseError.message}`);
@@ -532,11 +535,14 @@ export class ToolService {
         
         this.logger.log(`✅ SpotBugs encontró ${findings.length} bugs`);
         
+        // Normalizar los findings de SpotBugs
+        const normalizedFindings = findings.map((bug: any) => this.normalizeSpotBugsFinding(bug));
+        
         return {
           tool: 'spotbugs',
-          success: findings.length > 0,
-          findings: findings,
-          findingsCount: findings.length
+          success: normalizedFindings.length > 0,
+          findings: normalizedFindings,
+          findingsCount: normalizedFindings.length
         };
       } catch (parseError) {
         this.logger.error(`Error parseando XML: ${parseError.message}`);
@@ -954,14 +960,60 @@ export class ToolService {
     
     try {
       let semgrepCommand = 'semgrep';
+      let semgrepAvailable = false;
       
       // Intentar primero con comando directo semgrep
       try {
         await execAsync('semgrep --version', { timeout: 5000 });
+        this.logger.log('✅ semgrep command found (global)');
+        semgrepAvailable = true;
       } catch (error) {
-        // Si falla, usar python -m semgrep (recomendado vs py -m semgrep)
-        this.logger.log('Comando "semgrep" no encontrado, usando "python -m semgrep"');
-        semgrepCommand = 'python -m semgrep';
+        // Si falla, intentar con rutas específicas
+        this.logger.log('⚠️ semgrep command not found, trying specific paths...');
+        
+        const possibleSemgrepPaths = [
+          '/usr/local/bin/semgrep',
+          '/usr/bin/semgrep',
+          '/opt/tools/semgrep/bin/semgrep'
+        ];
+        
+        for (const sbPath of possibleSemgrepPaths) {
+          try {
+            await execAsync(`"${sbPath}" --version`, { timeout: 5000 });
+            semgrepCommand = `"${sbPath}"`;
+            this.logger.log(`✅ semgrep found at: ${sbPath}`);
+            semgrepAvailable = true;
+            break;
+          } catch (e) {
+            this.logger.debug(`❌ semgrep not found at: ${sbPath}`);
+          }
+        }
+        
+        // Si aún no lo encontró, intentar con python
+        if (!semgrepAvailable) {
+          this.logger.log('⚠️ semgrep executable not found, checking python installation...');
+          try {
+            await execAsync('python --version', { timeout: 5000 });
+            // Si Python está disponible, usar como fallback
+            semgrepCommand = 'python -m semgrep';
+            this.logger.warn('⚠️ Using deprecated method: python -m semgrep (consider installing semgrep as CLI)');
+            semgrepAvailable = true;
+          } catch (e) {
+            this.logger.warn('⚠️ Neither semgrep CLI nor Python found - semgrep will be skipped');
+          }
+        }
+      }
+      
+      // Si semgrep no está disponible, retornar sin error
+      if (!semgrepAvailable) {
+        this.logger.log('ℹ️ Semgrep skipped - not available in this environment');
+        return {
+          tool: 'semgrep',
+          success: false,
+          findings: [],
+          error: 'Semgrep no está disponible (ni como CLI ni como módulo Python)',
+          rawOutput: 'Semgrep skipped - install semgrep for security scanning'
+        };
       }
       
       const outputPath = path.join(projectDir, 'semgrep-results.json');
@@ -977,20 +1029,18 @@ export class ToolService {
       
       const command = `${semgrepCommand} ${configs} --json --verbose --output="${outputPath}" "${projectDir}"`;
       
-      this.logger.log(`Ejecutando Semgrep: ${command}`);
-      
-      this.logger.log(`Ejecutando comando: ${command}`);
+      this.logger.log(`📋 Semgrep command: ${command}`);
       
       try {
         const { stdout, stderr } = await execAsync(command, { timeout: 120000 });
-        this.logger.log(`Semgrep completado exitosamente`);
+        this.logger.log(`✅ Semgrep completado exitosamente`);
         if (stdout) this.logger.log(`Semgrep stdout: ${stdout}`);
         if (stderr && !stderr.includes('deprecated')) {
           this.logger.warn(`Semgrep stderr: ${stderr}`);
         }
       } catch (execError) {
         // Semgrep puede "fallar" por advertencias pero aún generar resultados válidos
-        this.logger.warn(`Semgrep proceso terminó con código de salida no-cero: ${execError.message}`);
+        this.logger.warn(`⚠️ Semgrep proceso terminó con código de salida no-cero: ${execError.message.substring(0, 100)}`);
         // Continuar para verificar si se generaron resultados
       }
       
@@ -1065,6 +1115,106 @@ export class ToolService {
         success: false,
         findings: [],
         error: `Semgrep no disponible: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Normaliza los findings de SpotBugs del formato XML parseado a un formato consistente
+   * que sea compatible con el procesamiento posterior
+   */
+  private normalizeSpotBugsFinding(bugInstance: any): any {
+    try {
+      // Extraer información del BugInstance
+      const type = bugInstance.$?.type || bugInstance.type || '';
+      const priority = bugInstance.$?.priority || bugInstance.priority || 'unknown';
+      const rank = bugInstance.$?.rank || bugInstance.rank || '';
+      const abbrev = bugInstance.$?.abbrev || bugInstance.abbrev || '';
+      const category = bugInstance.$?.category || bugInstance.category || '';
+      
+      // Extraer mensaje/descripción
+      let message = `[${type}] ${abbrev || category || 'Bug'} (Priority: ${priority})`;
+      
+      // Buscar información de la fuente (file y línea)
+      let sourcefile = '';
+      let startLine = null;
+      let endLine = null;
+      
+      // SpotBugs puede tener SourceLine en varios lugares:
+      // 1. Directamente en BugInstance
+      // 2. Dentro de Class/Method/Field
+      
+      const extractSourceInfo = (node: any) => {
+        if (!node) return;
+        
+        // Si node tiene propiedades $ (atributos XML)
+        if (node.$) {
+          if (node.$.sourcefile) sourcefile = node.$.sourcefile;
+          if (node.$.start) startLine = parseInt(node.$.start);
+          if (node.$.end) endLine = parseInt(node.$.end);
+        }
+        
+        // Si node tiene un array SourceLine
+        if (node.SourceLine) {
+          const sourceLines = Array.isArray(node.SourceLine) ? node.SourceLine : [node.SourceLine];
+          for (const sl of sourceLines) {
+            if (sl && sl.$) {
+              if (!sourcefile && sl.$.sourcefile) sourcefile = sl.$.sourcefile;
+              if (!startLine && sl.$.start) startLine = parseInt(sl.$.start);
+              if (!endLine && sl.$.end) endLine = parseInt(sl.$.end);
+            }
+          }
+        }
+      };
+      
+      // Buscar en la estructura anidada
+      if (bugInstance.Class) {
+        const classNode = Array.isArray(bugInstance.Class) ? bugInstance.Class[0] : bugInstance.Class;
+        extractSourceInfo(classNode);
+      }
+      
+      if (bugInstance.Method) {
+        const methodNode = Array.isArray(bugInstance.Method) ? bugInstance.Method[0] : bugInstance.Method;
+        extractSourceInfo(methodNode);
+      }
+      
+      if (bugInstance.Field) {
+        const fieldNode = Array.isArray(bugInstance.Field) ? bugInstance.Field[0] : bugInstance.Field;
+        extractSourceInfo(fieldNode);
+      }
+      
+      // Buscar SourceLine directo
+      extractSourceInfo(bugInstance);
+      
+      // Normalizar a estructura esperada
+      return {
+        type: type,
+        message: message,
+        description: message,
+        rule: type,
+        priority: priority,
+        rank: rank,
+        category: category,
+        abbrev: abbrev,
+        sourcefile: sourcefile || '',
+        file: sourcefile || '',
+        path: sourcefile || '',
+        line: startLine,
+        startLine: startLine,
+        endLine: endLine,
+        start: startLine,
+        end: endLine,
+        // También mantener la estructura original por si acaso
+        original: bugInstance
+      };
+    } catch (err) {
+      this.logger.warn(`Error normalizando SpotBugs finding: ${err.message}`);
+      // Devolver estructura mínima si hay error
+      return {
+        type: bugInstance.$?.type || 'Unknown',
+        message: 'Error al procesar finding de SpotBugs',
+        sourcefile: '',
+        line: null
       };
     }
   }
