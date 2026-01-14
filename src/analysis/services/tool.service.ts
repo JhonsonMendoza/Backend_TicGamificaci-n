@@ -592,8 +592,9 @@ export class ToolService {
       
       // Rutas en orden de prioridad - Docker first
       const possiblePaths = [
-        '/usr/local/bin/pmd',  // Symlink de Docker (PRIMERO)
-        '/opt/tools/pmd-bin-7.0.0/bin/pmd',  // Ruta directa Docker
+        '/opt/tools/bin/pmd',  // Symlink de Docker (PRIMERO)
+        '/usr/local/bin/pmd',  // Symlink alternativo de Docker
+        '/opt/tools/pmd/bin/pmd',  // Ruta directa Docker
         'pmd',  // Comando global
         path.join(process.env.PROGRAMFILES || '', 'pmd/bin/pmd'),
         path.join(process.env.APPDATA || '', 'npm/pmd'),
@@ -649,7 +650,7 @@ export class ToolService {
         // ÚLTIMO INTENTO: ruta absoluta Docker (fallback definitivo)
         try {
           this.logger.warn(`⚠️  Último intento: verificando ruta absoluta Docker...`);
-          const dockerPath = '/opt/tools/pmd-bin-7.0.0/bin/pmd';
+          const dockerPath = '/opt/tools/bin/pmd';
           const versionCheck = await execAsync(`"${dockerPath}" --version`, { timeout: 3000, shell: '/bin/bash' });
           pmdCommand = `"${dockerPath}"`;
           pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
@@ -984,7 +985,8 @@ export class ToolService {
         this.logger.log('⚠️ semgrep command not found, trying specific paths...');
         
         const possibleSemgrepPaths = [
-          '/usr/local/bin/semgrep',
+          '/opt/tools/bin/semgrep',  // Symlink de Docker (PRIMERO)
+          '/usr/local/bin/semgrep',  // Symlink alternativo de Docker
           '/usr/bin/semgrep',
           '/opt/tools/semgrep/bin/semgrep'
         ];
