@@ -21,7 +21,7 @@ RUN npm run build
 FROM node:20-alpine
 
 # Invalidar caché de docker para forzar rebuild completo
-ARG CACHEBUST=1
+ARG CACHEBUST=build_$(date +%s)_pmd_semgrep_fix_2025_01_14
 
 WORKDIR /app
 
