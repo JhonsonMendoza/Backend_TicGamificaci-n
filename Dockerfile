@@ -102,12 +102,8 @@ RUN echo "📦 Instalando Semgrep..." && \
     pip3 install --no-cache-dir --break-system-packages semgrep 2>&1 && \
     echo "✓ Semgrep instalado via pip3" && \
     rm -f /usr/local/bin/semgrep && \
-    cat > /usr/local/bin/semgrep << 'SEMGREP_SCRIPT'
-#!/bin/sh
-# Wrapper script para Semgrep
-exec python3 -m semgrep "$@"
-SEMGREP_SCRIPT
-chmod +x /usr/local/bin/semgrep && \
+    printf '#!/bin/sh\nexec python3 -m semgrep "$@"\n' > /usr/local/bin/semgrep && \
+    chmod +x /usr/local/bin/semgrep && \
     echo "✓ Wrapper script /usr/local/bin/semgrep creado y con permisos de ejecución" && \
     echo "📋 Verificando Semgrep..." && \
     python3 -c "import semgrep; print('✓ Semgrep Python module available')" && \
@@ -140,10 +136,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
 
 # Iniciar aplicación con logs de diagnóstico
-CMD ["sh", "-c", "echo '🔍 Verificando herramientas instaladas...' && \
-    echo '📋 PMD:' && (pmd --version 2>&1 | head -1 || echo '⚠️ PMD no disponible') && \
-    echo '🐛 SpotBugs:' && (spotbugs -version 2>&1 | head -1 || echo '⚠️ SpotBugs no disponible') && \
-    echo '🔍 Semgrep:' && (/usr/local/bin/semgrep --version 2>&1 | head -1 || python3 -c \"import semgrep; print('✓ Semgrep (via Python)')\" 2>/dev/null || echo '⚠️ Semgrep no disponible') && \
-    echo '✅ Verificación completada' && \
+CMD ["sh", "-c", "echo '🔍 VERIFICACIÓN DE HERRAMIENTAS INSTALADAS' && \
+    echo '========================================' && \
+    echo '📋 PMD:' && (which pmd && pmd --version 2>&1 | head -1 || echo '❌ PMD no disponible') && \
+    echo '🐛 SpotBugs:' && (which spotbugs && spotbugs -version 2>&1 | head -1 || echo '❌ SpotBugs no disponible') && \
+    echo '🔍 Semgrep:' && (which semgrep && /usr/local/bin/semgrep --version 2>&1 | head -1 || python3 -c \"import semgrep; print('✓ Semgrep (Python module)')\" 2>/dev/null || echo '❌ Semgrep no disponible') && \
+    echo '========================================' && \
     echo 'Iniciando servidor...' && \
     node dist/main.js"]
