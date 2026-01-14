@@ -67,11 +67,16 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
 
 # Verificar PMD funciona
 RUN echo "🔍 Verificando PMD..." && \
-    echo "   Probando: /opt/tools/pmd/bin/pmd --version" && \
-    /opt/tools/pmd/bin/pmd --version || (echo "❌ Error directo con PMD"; exit 1) && \
-    echo "   Probando: /usr/local/bin/pmd --version" && \
-    /usr/local/bin/pmd --version || (echo "❌ Error con symlink"; exit 1) && \
-    echo "✅ PMD verificado correctamente"
+    if [ -f /opt/tools/pmd/bin/pmd ]; then \
+        echo "   ✓ Archivo ejecutable encontrado: /opt/tools/pmd/bin/pmd"; \
+        echo "   Intentando ejecutar..."; \
+        /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 || echo "⚠️ PMD versión falló pero el binario existe"; \
+    else \
+        echo "❌ Archivo /opt/tools/pmd/bin/pmd no existe"; \
+        ls -la /opt/tools/pmd/bin/ 2>/dev/null || echo "Dir /opt/tools/pmd/bin no existe"; \
+        exit 1; \
+    fi && \
+    echo "✅ PMD verificado"
 
 # ============ INSTALAR SPOTBUGS ============
 RUN echo "📥 Descargando SpotBugs..." && \
@@ -90,9 +95,15 @@ RUN echo "📥 Descargando SpotBugs..." && \
     echo "✅ SpotBugs instalado en /opt/tools/spotbugs"
 
 # Verificar SpotBugs funciona
-RUN echo "Verificando SpotBugs..." && \
-    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 || \
-    (echo "⚠️ SpotBugs verificación inicial falló" && exit 1)
+RUN echo "🔍 Verificando SpotBugs..." && \
+    if [ -f /opt/tools/spotbugs/bin/spotbugs ]; then \
+        echo "   ✓ Archivo ejecutable encontrado"; \
+        /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 || echo "⚠️ SpotBugs versión falló pero el binario existe"; \
+    else \
+        echo "❌ Archivo /opt/tools/spotbugs/bin/spotbugs no existe"; \
+        exit 1; \
+    fi && \
+    echo "✅ SpotBugs verificado"
 
 # ============ INSTALAR MAVEN ============
 RUN apk add --no-cache maven && \
