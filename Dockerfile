@@ -36,35 +36,25 @@ RUN apk add --no-cache \
 RUN apk add --no-cache unzip tar wget && \
     mkdir -p /opt/tools
 
-# Instalar PMD desde fuente (GitHub releases)
-RUN set -e; \
-    echo "Descargando PMD..."; \
-    LATEST_PMD=$(curl -s https://api.github.com/repos/pmd/pmd/releases/latest | grep -o '"tag_name": "pmd[^"]*' | cut -d'"' -f4); \
-    if [ -n "$LATEST_PMD" ]; then \
-        PMD_URL="https://github.com/pmd/pmd/releases/download/$LATEST_PMD/pmd-bin-${LATEST_PMD#pmd-}.zip"; \
-        curl -L --fail --silent "$PMD_URL" -o /tmp/pmd.zip && \
-        unzip -q /tmp/pmd.zip -d /opt/tools && \
-        ln -s /opt/tools/pmd-*/bin/pmd /usr/local/bin/pmd && \
-        rm /tmp/pmd.zip && \
-        echo "✓ PMD instalado exitosamente"; \
-    else \
-        echo "⚠ No se pudo obtener PMD"; \
-    fi
+# Instalar PMD desde versión estable conocida
+RUN echo "Descargando PMD..." && \
+    curl -L --retry 3 --connect-timeout 10 \
+    "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" \
+    -o /tmp/pmd.zip 2>&1 && \
+    unzip -q /tmp/pmd.zip -d /opt/tools && \
+    ln -sf /opt/tools/pmd-7.0.0/bin/pmd /usr/local/bin/pmd && \
+    rm /tmp/pmd.zip && \
+    echo "✓ PMD instalado exitosamente" || echo "⚠ Error instalando PMD"
 
-# Instalar SpotBugs desde fuente (GitHub releases)
-RUN set -e; \
-    echo "Descargando SpotBugs..."; \
-    LATEST_SPOTBUGS=$(curl -s https://api.github.com/repos/spotbugs/spotbugs/releases/latest | grep -o '"tag_name": "[^"]*' | head -1 | cut -d'"' -f4); \
-    if [ -n "$LATEST_SPOTBUGS" ]; then \
-        SPOTBUGS_URL="https://github.com/spotbugs/spotbugs/releases/download/$LATEST_SPOTBUGS/spotbugs-${LATEST_SPOTBUGS}.zip"; \
-        curl -L --fail --silent "$SPOTBUGS_URL" -o /tmp/spotbugs.zip && \
-        unzip -q /tmp/spotbugs.zip -d /opt/tools && \
-        ln -s /opt/tools/spotbugs-*/bin/spotbugs /usr/local/bin/spotbugs && \
-        rm /tmp/spotbugs.zip && \
-        echo "✓ SpotBugs instalado exitosamente"; \
-    else \
-        echo "⚠ No se pudo obtener SpotBugs"; \
-    fi
+# Instalar SpotBugs desde versión estable conocida
+RUN echo "Descargando SpotBugs..." && \
+    curl -L --retry 3 --connect-timeout 10 \
+    "https://github.com/spotbugs/spotbugs/releases/download/4.8.3/spotbugs-4.8.3.zip" \
+    -o /tmp/spotbugs.zip 2>&1 && \
+    unzip -q /tmp/spotbugs.zip -d /opt/tools && \
+    ln -sf /opt/tools/spotbugs-4.8.3/bin/spotbugs /usr/local/bin/spotbugs && \
+    rm /tmp/spotbugs.zip && \
+    echo "✓ SpotBugs instalado exitosamente" || echo "⚠ Error instalando SpotBugs"
 
 # Instalar Semgrep desde pip
 RUN echo "Instalando Semgrep..."; \
