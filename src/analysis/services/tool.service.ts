@@ -238,6 +238,7 @@ export class ToolService {
         path.join(projectDir, 'target', 'spotbugsXml.xml'),
         path.join(projectDir, 'target', 'spotbugs.xml'),
         path.join(projectDir, 'target', 'spotbugs-results.xml'),
+        path.join(projectDir, 'target', 'spotbugsTemp.xml'),
         path.join(projectDir, 'target', 'site', 'spotbugs.xml')
       ];
       
@@ -524,8 +525,9 @@ export class ToolService {
         this.logger.warn(`    ⚠️  PMD no encontrado como comando global`);
         this.logger.log(`    Error: ${(versionError as any).message.substring(0, 100)}`);
         
-        // Intentar buscar PMD en rutas comunes
+        // Intentar buscar PMD en rutas comunes (incluyendo Docker)
         const possiblePaths = [
+          '/opt/tools/pmd-bin-7.0.0/bin/pmd',
           path.join(projectDir, 'tools/pmd/pmd-bin-*/bin/pmd'),
           path.join(process.env.PROGRAMFILES || '', 'pmd/bin/pmd'),
           path.join(process.env.APPDATA || '', 'npm/pmd'),

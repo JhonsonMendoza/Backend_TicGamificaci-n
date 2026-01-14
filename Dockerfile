@@ -79,6 +79,9 @@ RUN echo "Instalando Semgrep..."; \
     semgrep --version && \
     echo "✓ Semgrep instalado exitosamente"
 
+# Configurar PATH global para herramientas de análisis
+ENV PATH="/opt/tools/pmd-bin-7.0.0/bin:/opt/tools/spotbugs-4.8.3/bin:${PATH}"
+
 # Copiar package.json y package-lock.json
 COPY package*.json ./
 
@@ -103,4 +106,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
 
 # Iniciar aplicación con logs de diagnóstico
-CMD ["sh", "-c", "echo '=== Verificación de herramientas de análisis ===' && pmd --version 2>&1 && spotbugs -version 2>&1 && semgrep --version && echo '===' && node dist/main.js"]
+CMD ["sh", "-c", "pmd --version && semgrep --version && node dist/main.js"]
