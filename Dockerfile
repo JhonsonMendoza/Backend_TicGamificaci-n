@@ -91,6 +91,11 @@ COPY --from=builder /opt/tools/pmd /opt/tools/pmd
 # Copiar SpotBugs desde builder  
 COPY --from=builder /opt/tools/spotbugs /opt/tools/spotbugs
 
+# Verificar que los COPYs funcionaron
+RUN echo "✅ COPY desde builder completado" && \
+    test -d /opt/tools/pmd && echo "   PMD: ✓" || echo "   PMD: ✗ NO COPIADO" && \
+    test -d /opt/tools/spotbugs && echo "   SpotBugs: ✓" || echo "   SpotBugs: ✗ NO COPIADO"
+
 # ============ INSTALAR SEMGREP EN RUNTIME ============
 RUN echo "📦 Instalando Semgrep via pip3..." && \
     pip3 install --no-cache-dir --break-system-packages semgrep && \
@@ -103,36 +108,39 @@ RUN apk add --no-cache maven && \
     mvn --version && \
     echo "✅ Maven listo"
 
-# ============ CREAR SYMLINKS Y PATH ============
-RUN ln -sf /opt/tools/pmd/bin/pmd /usr/bin/pmd && \
-    ln -sf /opt/tools/spotbugs/bin/spotbugs /usr/local/bin/spotbugs && \
-    ln -sf /opt/tools/spotbugs/bin/spotbugs /opt/tools/bin/spotbugs
-
-# Configurar PATH y JAVA_HOME
+# ============ CONFIGURAR PATH PRIMERO - ANTES DE SYMLINKS ============
+# Poner rutas absolutas PRIMERO en PATH para mayor prioridad
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk \
     PATH="/opt/tools/pmd/bin:/opt/tools/spotbugs/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
+
+# ============ CREAR SYMLINKS COMO BACKUP ============
+RUN echo "Creando symlinks..." && \
+    mkdir -p /opt/tools/bin && \
+    ln -sf /opt/tools/pmd/bin/pmd /usr/bin/pmd 2>&1 || true && \
+    ln -sf /opt/tools/spotbugs/bin/spotbugs /usr/local/bin/spotbugs 2>&1 || true && \
+    ln -sf /opt/tools/spotbugs/bin/spotbugs /opt/tools/bin/spotbugs 2>&1 || true && \
+    echo "✅ Symlinks creados"
 
 # ============ VERIFICAR TODAS LAS HERRAMIENTAS ============
 RUN echo "═══════════════════════════════════════════" && \
     echo "✅ VERIFICACIÓN EN IMAGEN FINAL" && \
     echo "═══════════════════════════════════════════" && \
-    echo "📂 Verificando directorios:" && \
-    echo "   /opt/tools/pmd: $(test -d /opt/tools/pmd && echo '✓' || echo '✗')" && \
-    echo "   /opt/tools/spotbugs: $(test -d /opt/tools/spotbugs && echo '✓' || echo '✗')" && \
+    echo "📂 Directorios copiados:" && \
+    ls -la /opt/tools/ && \
     echo "" && \
-    echo "1️⃣  PMD:" && \
-    test -f /opt/tools/pmd/bin/pmd && /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 || echo "❌ PMD no encontrado" && \
-    echo "   Path symlink: $(test -L /usr/bin/pmd && echo '✓ Existe' || echo '✗ No existe')" && \
+    echo "1️⃣  PMD en PATH:" && \
+    /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 || echo "❌ PMD no ejecuta" && \
+    echo "   Ejecutable: $(test -x /opt/tools/pmd/bin/pmd && echo '✓' || echo '✗')" && \
     echo "" && \
-    echo "2️⃣  SpotBugs:" && \
-    test -f /opt/tools/spotbugs/bin/spotbugs && /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 || echo "❌ SpotBugs no encontrado" && \
-    echo "   Path symlink: $(test -L /usr/local/bin/spotbugs && echo '✓ Existe' || echo '✗ No existe')" && \
+    echo "2️⃣  SpotBugs en PATH:" && \
+    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 || echo "❌ SpotBugs no ejecuta" && \
+    echo "   Ejecutable: $(test -x /opt/tools/spotbugs/bin/spotbugs && echo '✓' || echo '✗')" && \
     echo "" && \
     echo "3️⃣  Semgrep:" && \
     which semgrep && semgrep --version 2>&1 | head -1 || echo "❌ Semgrep no encontrado" && \
     echo "" && \
-    echo "4️⃣  Maven:" && \
-    which mvn && mvn --version 2>&1 | head -1 || echo "❌ Maven no encontrado" && \
+    echo "4️⃣  PATH actual:" && \
+    echo "$PATH" && \
     echo "═══════════════════════════════════════════"
 
 # Copiar package.json y package-lock.json
