@@ -59,7 +59,7 @@ RUN echo "📥 Descargando SpotBugs 4.8.3..." && \
     unzip -q spotbugs-4.8.3.zip -d /tmp && \
     echo "📂 Contenido de /tmp después de unzip:" && \
     ls -la /tmp | grep -E "spotbugs|^d" && \
-    mv /tmp/spotbugs-* /opt/tools/spotbugs && \
+    mv /tmp/spotbugs-*/ /opt/tools/spotbugs && \
     echo "✅ Directorio movido a /opt/tools/spotbugs" && \
     ls -la /opt/tools/spotbugs && \
     chmod -R +x /opt/tools/spotbugs/bin && \
