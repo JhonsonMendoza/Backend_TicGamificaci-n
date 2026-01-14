@@ -30,34 +30,37 @@ RUN mkdir -p /opt/tools/bin
 
 # ============ INSTALAR PMD EN BUILDER ============
 RUN echo "📥 Descargando PMD 7.0.0..." && \
+    mkdir -p /opt/tools && \
     cd /tmp && \
+    (curl -L --max-time 300 --retry 5 --connect-timeout 30 \
+    -o pmd-dist-7.0.0-bin.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 || \
     curl -L --max-time 300 --retry 5 --connect-timeout 30 \
-    -o pmd-7.0.0.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 || \
-    curl -L --max-time 300 --retry 5 --connect-timeout 30 \
-    -o pmd-7.0.0.zip "https://downloads.sourceforge.net/project/pmd/pmd/7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 && \
+    -o pmd-dist-7.0.0-bin.zip "https://downloads.sourceforge.net/project/pmd/pmd/7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1) && \
     echo "✓ PMD descargado, extrayendo..." && \
-    unzip -q pmd-7.0.0.zip -d /opt/tools && \
-    PMD_DIR=$(find /opt/tools -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
-    if [ -z "$PMD_DIR" ]; then echo "❌ Error: No se encontró PMD"; exit 1; fi && \
-    mv "$PMD_DIR" /opt/tools/pmd && \
+    unzip -q pmd-dist-7.0.0-bin.zip -d /tmp && \
+    ls -la /tmp | grep pmd && \
+    mv /tmp/pmd-* /opt/tools/pmd || { ls -la /tmp/; echo "❌ Error: No se encontró directorio PMD"; exit 1; } && \
+    ls -la /opt/tools/pmd && \
     chmod -R +x /opt/tools/pmd/bin && \
     /opt/tools/pmd/bin/pmd --version && \
-    echo "✅ PMD instalado en builder"
+    echo "✅ PMD ($(cat /opt/tools/pmd/bin/pmd | grep -m1 version)) instalado en /opt/tools/pmd"
 
 # ============ INSTALAR SPOTBUGS EN BUILDER ============
-RUN echo "📥 Descargando SpotBugs..." && \
+RUN echo "📥 Descargando SpotBugs 4.8.3..." && \
+    mkdir -p /opt/tools && \
     cd /tmp && \
+    (curl -L --retry 5 --connect-timeout 10 --max-time 120 \
+    -o spotbugs-4.8.3.zip "https://github.com/spotbugs/spotbugs/releases/download/4.8.3/spotbugs-4.8.3.zip" 2>&1 || \
     curl -L --retry 5 --connect-timeout 10 --max-time 120 \
-    -o spotbugs.zip "https://github.com/spotbugs/spotbugs/releases/download/4.8.3/spotbugs-4.8.3.zip" 2>&1 || \
-    curl -L --retry 5 --connect-timeout 10 --max-time 120 \
-    -o spotbugs.zip "https://sourceforge.net/projects/spotbugs/files/spotbugs/4.8.3/spotbugs-4.8.3.zip/download" 2>&1 && \
-    unzip -q spotbugs.zip -d /tmp && \
-    SPOTBUGS_DIR=$(find /tmp -maxdepth 1 -type d -name "spotbugs-*" | head -1) && \
-    if [ -z "$SPOTBUGS_DIR" ]; then echo "❌ Error: No se encontró SpotBugs"; exit 1; fi && \
-    mv "$SPOTBUGS_DIR" /opt/tools/spotbugs && \
+    -o spotbugs-4.8.3.zip "https://sourceforge.net/projects/spotbugs/files/spotbugs/4.8.3/spotbugs-4.8.3.zip/download" 2>&1) && \
+    echo "✓ SpotBugs descargado, extrayendo..." && \
+    unzip -q spotbugs-4.8.3.zip -d /tmp && \
+    ls -la /tmp | grep spotbugs && \
+    mv /tmp/spotbugs-* /opt/tools/spotbugs || { ls -la /tmp/; echo "❌ Error: No se encontró directorio SpotBugs"; exit 1; } && \
+    ls -la /opt/tools/spotbugs && \
     chmod -R +x /opt/tools/spotbugs/bin && \
     /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 && \
-    echo "✅ SpotBugs instalado en builder"
+    echo "✅ SpotBugs instalado en /opt/tools/spotbugs"
 
 # ============ ETAPA 2: RUNTIME ============
 FROM node:20-alpine
@@ -109,20 +112,23 @@ ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk \
 RUN echo "═══════════════════════════════════════════" && \
     echo "✅ VERIFICACIÓN EN IMAGEN FINAL" && \
     echo "═══════════════════════════════════════════" && \
+    echo "📂 Verificando directorios:" && \
+    echo "   /opt/tools/pmd: $(test -d /opt/tools/pmd && echo '✓' || echo '✗')" && \
+    echo "   /opt/tools/spotbugs: $(test -d /opt/tools/spotbugs && echo '✓' || echo '✗')" && \
+    echo "" && \
     echo "1️⃣  PMD:" && \
-    /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 && \
-    echo "   ✓ Path: $(which pmd)" && \
+    test -f /opt/tools/pmd/bin/pmd && /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 || echo "❌ PMD no encontrado" && \
+    echo "   Path symlink: $(test -L /usr/bin/pmd && echo '✓ Existe' || echo '✗ No existe')" && \
     echo "" && \
     echo "2️⃣  SpotBugs:" && \
-    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 && \
-    echo "   ✓ Path: $(which spotbugs)" && \
+    test -f /opt/tools/spotbugs/bin/spotbugs && /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 || echo "❌ SpotBugs no encontrado" && \
+    echo "   Path symlink: $(test -L /usr/local/bin/spotbugs && echo '✓ Existe' || echo '✗ No existe')" && \
     echo "" && \
     echo "3️⃣  Semgrep:" && \
-    semgrep --version && \
-    echo "   ✓ Path: $(which semgrep)" && \
+    which semgrep && semgrep --version 2>&1 | head -1 || echo "❌ Semgrep no encontrado" && \
     echo "" && \
     echo "4️⃣  Maven:" && \
-    mvn --version 2>&1 | head -1 && \
+    which mvn && mvn --version 2>&1 | head -1 || echo "❌ Maven no encontrado" && \
     echo "═══════════════════════════════════════════"
 
 # Copiar package.json y package-lock.json
