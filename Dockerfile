@@ -104,9 +104,7 @@ RUN echo "📦 Instalando Semgrep..." && \
     echo '#!/bin/sh' > /usr/local/bin/semgrep && \
     echo 'exec python3 -m semgrep "$@"' >> /usr/local/bin/semgrep && \
     chmod +x /usr/local/bin/semgrep && \
-    echo "✓ Wrapper script /usr/local/bin/semgrep creado" && \
-    semgrep --version && \
-    echo "✓ Semgrep disponible como comando"
+    echo "✓ Wrapper script /usr/local/bin/semgrep creado"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
