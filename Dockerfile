@@ -95,10 +95,9 @@ COPY --from=builder /app/dist ./dist
 # Copiar archivos de configuración
 COPY pmd-ruleset.xml ./
 COPY .env.example ./
-COPY entrypoint.sh ./
 
 # Crear carpeta para uploads
-RUN mkdir -p uploads && chmod +x entrypoint.sh
+RUN mkdir -p uploads
 
 # Exponer puerto
 EXPOSE 3000
@@ -107,5 +106,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
 
-# Usar exec form (JSON) para mejor manejo de señales OS
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Iniciar aplicación con verificación de herramientas
+CMD ["sh", "-c", "echo ''; echo '============================================'; echo '🔍 VERIFICACIÓN DE HERRAMIENTAS EN RUNTIME'; echo '============================================'; echo ''; echo '📋 PMD:'; /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 || echo '❌ PMD no disponible'; echo ''; echo '🐛 SpotBugs:'; /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 || echo '❌ SpotBugs no disponible'; echo ''; echo '🔍 Semgrep:'; semgrep --version 2>&1 | head -1 || echo '❌ Semgrep no disponible'; echo ''; echo '📦 Maven:'; mvn --version 2>&1 | head -1 || echo '❌ Maven no disponible'; echo ''; echo '============================================'; echo 'Iniciando servidor...'; echo ''; exec node dist/main.js"]
