@@ -97,15 +97,16 @@ RUN echo "Instalando Maven..." && \
     mvn --version && \
     echo "✓ Maven instalado exitosamente"
 
-# Instalar Semgrep como CLI
-RUN echo "📦 Instalando Semgrep como CLI..." && \
+# Instalar Semgrep como CLI con wrapper script
+RUN echo "📦 Instalando Semgrep..." && \
     pip3 install --no-cache-dir --break-system-packages semgrep 2>&1 && \
-    python3 -m pip install --upgrade --no-cache-dir --break-system-packages semgrep 2>&1 && \
-    which semgrep || echo "Buscando en rutas de pip..." && \
-    ls -la /usr/local/bin/ | grep -i semgrep || true && \
-    find /usr -name "semgrep" -type f 2>/dev/null | head -5 || true && \
-    python3 -m semgrep --version && \
-    echo "✓ Semgrep instalado exitosamente"
+    echo "✓ Semgrep instalado via pip3" && \
+    echo '#!/bin/sh' > /usr/local/bin/semgrep && \
+    echo 'exec python3 -m semgrep "$@"' >> /usr/local/bin/semgrep && \
+    chmod +x /usr/local/bin/semgrep && \
+    echo "✓ Wrapper script /usr/local/bin/semgrep creado" && \
+    semgrep --version && \
+    echo "✓ Semgrep disponible como comando"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
