@@ -1481,7 +1481,7 @@ export class ToolService {
         : `find "${dir}" -name "*${ext}"`;
       
       const { stdout } = await execAsync(command, { timeout: 10000, shell: true } as any);
-      return stdout.trim().split('\n').filter(line => line.trim());
+      return stdout.toString().trim().split('\n').filter(line => line.trim());
     } catch {
       return [];
     }
@@ -1503,7 +1503,7 @@ export class ToolService {
             : `find "${srcPath}" -name "*.java"`;
           
           const { stdout } = await execAsync(command, { timeout: 5000, shell: true } as any);
-          if (stdout.trim()) {
+          if (stdout.toString().trim()) {
             return srcPath;
           }
         } catch {
@@ -1528,7 +1528,7 @@ export class ToolService {
             : `find "${projectDir}" -name "${ext}"`;
           
           const { stdout } = await execAsync(command, { timeout: 5000, shell: true } as any);
-          if (stdout.trim()) {
+          if (stdout.toString().trim()) {
             return true;
           }
         } catch {
