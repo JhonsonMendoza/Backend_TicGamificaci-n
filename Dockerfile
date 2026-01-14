@@ -33,24 +33,26 @@ RUN apk add --no-cache \
     ca-certificates
 
 # Instalar PMD
-ENV PMD_VERSION=7.0.0
 RUN apk add --no-cache unzip && \
-    curl -L --retry 3 --retry-delay 2 "https://github.com/pmd/pmd/releases/download/pmd_releases/7.0.0/pmd-bin-7.0.0.zip" -o /tmp/pmd.zip && \
-    unzip /tmp/pmd.zip -d /opt && \
-    ln -s /opt/pmd-bin-7.0.0/bin/pmd /usr/local/bin/pmd && \
+    curl -L --retry 5 --retry-delay 3 --retry-max-time 60 \
+    "https://repo.maven.apache.org/maven2/net/sourceforge/pmd/pmd-dist/7.0.0/pmd-dist-7.0.0.zip" \
+    -o /tmp/pmd.zip && \
+    unzip -q /tmp/pmd.zip -d /opt && \
+    ln -s /opt/pmd-7.0.0/bin/pmd /usr/local/bin/pmd && \
     rm /tmp/pmd.zip && \
     rm -rf /tmp/*
 
 # Instalar SpotBugs
-ENV SPOTBUGS_VERSION=4.8.3
-RUN curl -L --retry 3 --retry-delay 2 "https://github.com/spotbugs/spotbugs/releases/download/4.8.3/spotbugs-4.8.3.tgz" -o /tmp/spotbugs.tgz && \
+RUN curl -L --retry 5 --retry-delay 3 --retry-max-time 60 \
+    "https://repo.maven.apache.org/maven2/com/github/spotbugs/spotbugs/4.8.3/spotbugs-4.8.3.tgz" \
+    -o /tmp/spotbugs.tgz && \
     tar -xzf /tmp/spotbugs.tgz -C /opt && \
     ln -s /opt/spotbugs-4.8.3/bin/spotbugs /usr/local/bin/spotbugs && \
     rm /tmp/spotbugs.tgz && \
     rm -rf /tmp/*
 
 # Instalar Semgrep
-RUN pip3 install --no-cache-dir semgrep
+RUN pip3 install --no-cache-dir semgrep==1.45.0
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
