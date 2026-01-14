@@ -36,13 +36,41 @@ RUN apk add --no-cache \
 RUN apk add --no-cache unzip tar wget && \
     mkdir -p /opt/tools
 
-# Instalar PMD y SpotBugs desde APK (Alpine Linux packages - más confiable)
-RUN apk add --no-cache pmd spotbugs 2>&1 || echo "⚠ Algunas herramientas no disponibles en APK"
+# Instalar PMD desde fuente (GitHub releases)
+RUN set -e; \
+    echo "Descargando PMD..."; \
+    LATEST_PMD=$(curl -s https://api.github.com/repos/pmd/pmd/releases/latest | grep -o '"tag_name": "pmd[^"]*' | cut -d'"' -f4); \
+    if [ -n "$LATEST_PMD" ]; then \
+        PMD_URL="https://github.com/pmd/pmd/releases/download/$LATEST_PMD/pmd-bin-${LATEST_PMD#pmd-}.zip"; \
+        curl -L --fail --silent "$PMD_URL" -o /tmp/pmd.zip && \
+        unzip -q /tmp/pmd.zip -d /opt/tools && \
+        ln -s /opt/tools/pmd-*/bin/pmd /usr/local/bin/pmd && \
+        rm /tmp/pmd.zip && \
+        echo "✓ PMD instalado exitosamente"; \
+    else \
+        echo "⚠ No se pudo obtener PMD"; \
+    fi
 
-# Instalar Semgrep desde apk y pip (con fallback)
-RUN apk add --no-cache py3-semgrep 2>/dev/null || \
-    pip3 install --no-cache-dir --break-system-packages semgrep 2>/dev/null || \
-    echo "ADVERTENCIA: Semgrep no disponible, continuando"
+# Instalar SpotBugs desde fuente (GitHub releases)
+RUN set -e; \
+    echo "Descargando SpotBugs..."; \
+    LATEST_SPOTBUGS=$(curl -s https://api.github.com/repos/spotbugs/spotbugs/releases/latest | grep -o '"tag_name": "[^"]*' | head -1 | cut -d'"' -f4); \
+    if [ -n "$LATEST_SPOTBUGS" ]; then \
+        SPOTBUGS_URL="https://github.com/spotbugs/spotbugs/releases/download/$LATEST_SPOTBUGS/spotbugs-${LATEST_SPOTBUGS}.zip"; \
+        curl -L --fail --silent "$SPOTBUGS_URL" -o /tmp/spotbugs.zip && \
+        unzip -q /tmp/spotbugs.zip -d /opt/tools && \
+        ln -s /opt/tools/spotbugs-*/bin/spotbugs /usr/local/bin/spotbugs && \
+        rm /tmp/spotbugs.zip && \
+        echo "✓ SpotBugs instalado exitosamente"; \
+    else \
+        echo "⚠ No se pudo obtener SpotBugs"; \
+    fi
+
+# Instalar Semgrep desde pip
+RUN echo "Instalando Semgrep..."; \
+    pip3 install --no-cache-dir --break-system-packages semgrep 2>/dev/null && \
+    echo "✓ Semgrep instalado exitosamente" || \
+    echo "⚠ Error al instalar Semgrep"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
