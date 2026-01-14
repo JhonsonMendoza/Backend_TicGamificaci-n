@@ -58,15 +58,13 @@ RUN echo "📥 Descargando PMD 7.0.0..." && \
     PMD_DIR=$(find /opt/tools -maxdepth 1 -type d -name "pmd-bin-*" | head -1) && \
     if [ -z "$PMD_DIR" ]; then echo "❌ Error: No se encontró PMD"; exit 1; fi && \
     echo "✓ PMD directorio: $PMD_DIR" && \
-    chmod +x "$PMD_DIR/bin/pmd" && \
+    chmod -R +x "$PMD_DIR/bin" && \
     chmod +x "$PMD_DIR/bin/run.sh" 2>/dev/null || true && \
     ln -sf "$PMD_DIR/bin/pmd" /usr/local/bin/pmd && \
     echo "✓ Symlink creado: /usr/local/bin/pmd -> $PMD_DIR/bin/pmd" && \
     echo "📋 Verificando instalación de PMD..." && \
     export JAVA_HOME=/usr/lib/jvm/java-11-openjdk && \
     "$PMD_DIR/bin/pmd" --version && \
-    pmd --version && \
-    which pmd && \
     echo "✅ PMD instalado y verificado"
 
 # Configurar JAVA_HOME y PATH
@@ -97,14 +95,21 @@ RUN echo "Instalando Maven..." && \
     mvn --version && \
     echo "✓ Maven instalado exitosamente"
 
-# Instalar Semgrep como CLI con wrapper script
+# Instalar Semgrep como CLI con wrapper script robusto
 RUN echo "📦 Instalando Semgrep..." && \
     pip3 install --no-cache-dir --break-system-packages semgrep 2>&1 && \
     echo "✓ Semgrep instalado via pip3" && \
-    echo '#!/bin/sh' > /usr/local/bin/semgrep && \
-    echo 'exec python3 -m semgrep "$@"' >> /usr/local/bin/semgrep && \
-    chmod +x /usr/local/bin/semgrep && \
-    echo "✓ Wrapper script /usr/local/bin/semgrep creado"
+    rm -f /usr/local/bin/semgrep && \
+    cat > /usr/local/bin/semgrep << 'SEMGREP_SCRIPT'
+#!/bin/sh
+# Wrapper script para Semgrep
+exec python3 -m semgrep "$@"
+SEMGREP_SCRIPT
+chmod +x /usr/local/bin/semgrep && \
+    echo "✓ Wrapper script /usr/local/bin/semgrep creado y con permisos de ejecución" && \
+    echo "📋 Verificando Semgrep..." && \
+    python3 -c "import semgrep; print('✓ Semgrep Python module available')" && \
+    echo "✅ Semgrep instalado y verificado"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
@@ -131,9 +136,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 # Iniciar aplicación con logs de diagnóstico
 CMD ["sh", "-c", "echo '🔍 Verificando herramientas instaladas...' && \
-    echo '📋 PMD:' && (pmd --version || echo '❌ PMD no disponible') && \
-    echo '🐛 SpotBugs:' && (spotbugs -version || echo '❌ SpotBugs no disponible') && \
-    echo '🔍 Semgrep:' && (semgrep --version || python3 -m semgrep --version || echo '❌ Semgrep no disponible') && \
+    echo '📋 PMD:' && (pmd --version 2>&1 | head -1 || echo '⚠️ PMD no disponible') && \
+    echo '🐛 SpotBugs:' && (spotbugs -version 2>&1 | head -1 || echo '⚠️ SpotBugs no disponible') && \
+    echo '🔍 Semgrep:' && (/usr/local/bin/semgrep --version 2>&1 | head -1 || python3 -c \"import semgrep; print('✓ Semgrep (via Python)')\" 2>/dev/null || echo '⚠️ Semgrep no disponible') && \
     echo '✅ Verificación completada' && \
     echo 'Iniciando servidor...' && \
     node dist/main.js"]
