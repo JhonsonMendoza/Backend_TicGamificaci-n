@@ -47,7 +47,8 @@ RUN echo "Descargando PMD..." && \
     chmod +x "$PMD_DIR/bin/pmd" && \
     chmod +x "$PMD_DIR/bin/run.sh" 2>/dev/null || true && \
     ln -sf "$PMD_DIR/bin/pmd" /usr/local/bin/pmd && \
-    pmd --version && \
+    echo "Verificando PMD..." && \
+    "$PMD_DIR/bin/pmd" --version && \
     echo "✓ PMD instalado en $PMD_DIR"
 
 # Instalar SpotBugs desde versión estable (sourceforge como alternativa)
@@ -64,7 +65,8 @@ RUN echo "Descargando SpotBugs..." && \
     chmod +x "$SPOTBUGS_DIR/bin/spotbugs" && \
     chmod +x "$SPOTBUGS_DIR/bin/run.sh" 2>/dev/null || true && \
     ln -sf "$SPOTBUGS_DIR/bin/spotbugs" /usr/local/bin/spotbugs && \
-    spotbugs -version && \
+    echo "Verificando SpotBugs..." && \
+    "$SPOTBUGS_DIR/bin/spotbugs" -version && \
     echo "✓ SpotBugs instalado en $SPOTBUGS_DIR"
 
 # Instalar Maven (necesario para SpotBugs)

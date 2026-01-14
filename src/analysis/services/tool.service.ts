@@ -203,20 +203,71 @@ export class ToolService {
         };
       }
 
-      // Paso 2: Ejecutar SpotBugs
-      this.logger.log('🔍 Paso 2: Ejecutando SpotBugs con Maven...');
+      // Paso 2: Ejecutar SpotBugs via Maven o directamente
+      this.logger.log('🔍 Paso 2: Ejecutando SpotBugs...');
       let spotbugsOutput = { stdout: '', stderr: '' };
+      let useDirectSpotBugs = false;
+      let possiblePaths: string[] = [
+        path.join(projectDir, 'target', 'spotbugsXml.xml'),
+        path.join(projectDir, 'target', 'spotbugs.xml'),
+        path.join(projectDir, 'target', 'spotbugs-results.xml'),
+        path.join(projectDir, 'target', 'spotbugsTemp.xml'),
+        path.join(projectDir, 'target', 'spotbugs-direct.xml'),
+        path.join(projectDir, 'target', 'site', 'spotbugs.xml')
+      ];
+      
       try {
-        spotbugsOutput = await execAsync(`${mavenCmd} spotbugs:spotbugs`, { cwd: projectDir, timeout: 300000 });
-        this.logger.log('✅ SpotBugs completado (XML generado)');
+        spotbugsOutput = await execAsync(`${mavenCmd} spotbugs:spotbugs -DskipTests`, { cwd: projectDir, timeout: 300000 });
+        this.logger.log('✅ Maven spotbugs:spotbugs completado');
       } catch (spotbugsError) {
         // SpotBugs con Maven puede fallar si encuentra bugs, pero el XML se genera de todos modos
-        this.logger.warn(`⚠️ Maven spotbugs returned non-zero exit: ${spotbugsError.message}`);
-        this.logger.log('ℹ️ Continuando - SpotBugs puede haber generado XML a pesar del error');
-        spotbugsOutput = {
-          stdout: spotbugsError.stdout || '',
-          stderr: spotbugsError.stderr || ''
-        };
+        this.logger.warn(`⚠️ Maven spotbugs returned non-zero exit: ${spotbugsError.message.substring(0, 100)}`);
+        this.logger.log('ℹ️ Intentaremos ejecutar SpotBugs directamente...');
+        useDirectSpotBugs = true;
+      }
+      
+      // Si Maven falló, intentar SpotBugs directamente
+      if (useDirectSpotBugs) {
+        try {
+          this.logger.log('🔧 Intentando ejecutar SpotBugs directamente...');
+          const classesDir = path.join(projectDir, 'target', 'classes');
+          const outputXml = path.join(projectDir, 'target', 'spotbugs-direct.xml');
+          
+          // Verificar que existen archivos compilados
+          const classFiles = await this.findFiles(classesDir, '**/*.class');
+          if (classFiles.length === 0) {
+            throw new Error('No hay archivos .class compilados para analizar');
+          }
+          
+          this.logger.log(`📍 Analizando ${classFiles.length} archivos .class desde ${classesDir}`);
+          
+          // Buscar SpotBugs ejecutable
+          let spotbugsCmd = 'spotbugs';
+          const spotbugsPaths = [
+            '/opt/tools/spotbugs-4.8.3/bin/spotbugs',
+            '/usr/local/bin/spotbugs'
+          ];
+          
+          for (const sbPath of spotbugsPaths) {
+            try {
+              await execAsync(`"${sbPath}" -version`, { timeout: 5000 });
+              spotbugsCmd = `"${sbPath}"`;
+              this.logger.log(`✅ SpotBugs encontrado en: ${sbPath}`);
+              break;
+            } catch (e) {
+              this.logger.debug(`❌ SpotBugs no disponible en ${sbPath}`);
+            }
+          }
+          
+          // Ejecutar SpotBugs directamente
+          const spotbugsCmd_str = `${spotbugsCmd} -xml -output "${outputXml}" "${classesDir}"`;
+          this.logger.log(`📋 Comando: ${spotbugsCmd_str}`);
+          
+          await execAsync(spotbugsCmd_str, { timeout: 300000 });
+          this.logger.log(`✅ SpotBugs directo completado`);
+        } catch (directError) {
+          this.logger.warn(`⚠️ SpotBugs directo también falló: ${directError.message}`);
+        }
       }
       
       // Paso 2.5: Verificar que la compilación generó archivos .class
@@ -234,13 +285,6 @@ export class ToolService {
       
       // Paso 3: Buscar y parsear archivo XML
       this.logger.log('📂 Paso 3: Buscando archivo de resultados XML...');
-      const possiblePaths = [
-        path.join(projectDir, 'target', 'spotbugsXml.xml'),
-        path.join(projectDir, 'target', 'spotbugs.xml'),
-        path.join(projectDir, 'target', 'spotbugs-results.xml'),
-        path.join(projectDir, 'target', 'spotbugsTemp.xml'),
-        path.join(projectDir, 'target', 'site', 'spotbugs.xml')
-      ];
       
       this.logger.log(`🔎 Buscando en ${possiblePaths.length} ubicaciones:`);
       possiblePaths.forEach((p, i) => this.logger.log(`   ${i+1}. ${p}`));
@@ -250,9 +294,15 @@ export class ToolService {
         try {
           const exists = await this.fileExists(possiblePath);
           if (exists) {
-            foundPath = possiblePath;
-            this.logger.log(`✅ Archivo encontrado: ${foundPath}`);
-            break;
+            // Verificar que no esté vacío
+            const stats = await fs.stat(possiblePath);
+            if (stats.size > 0) {
+              foundPath = possiblePath;
+              this.logger.log(`✅ Archivo encontrado: ${foundPath} (${stats.size} bytes)`);
+              break;
+            } else {
+              this.logger.debug(`   ⚠️ Archivo vacío: ${possiblePath} (0 bytes)`);
+            }
           } else {
             this.logger.debug(`   ❌ No existe: ${possiblePath}`);
           }
@@ -262,7 +312,7 @@ export class ToolService {
       }
       
       if (!foundPath) {
-        this.logger.warn('⚠️ No se encontró archivo XML de SpotBugs');
+        this.logger.warn('⚠️ No se encontró archivo XML de SpotBugs con contenido');
         
         // Logging adicional: listar qué hay en target/
         try {
@@ -277,7 +327,7 @@ export class ToolService {
           tool: 'spotbugs',
           success: false,
           findings: [],
-          error: 'SpotBugs ejecutado pero no se generó archivo XML'
+          error: 'SpotBugs ejecutado pero no se generó archivo XML válido'
         };
       }
 
@@ -515,30 +565,32 @@ export class ToolService {
       let pmdAvailable = false;
       let pmdVersion = '';
       
+      // Intentar buscar PMD en rutas comunes (incluyendo Docker) PRIMERO
+      const possiblePaths = [
+        '/opt/tools/pmd-bin-7.0.0/bin/pmd',  // Docker path - primero
+        path.join(process.env.PROGRAMFILES || '', 'pmd/bin/pmd'),
+        '/usr/local/bin/pmd',
+        path.join(process.env.APPDATA || '', 'npm/pmd'),
+        path.join(process.env.HOME || '', '.local/bin/pmd'),
+        'C:\\Program Files\\pmd\\bin\\pmd.bat'
+      ];
+      
+      // Try as global command first
       try {
-        const versionResult = await execAsync('pmd --version', { timeout: 5000 });
+        const versionResult = await execAsync('pmd --version', { timeout: 5000, shell: '/bin/sh' });
         pmdVersion = versionResult.stdout.toString().trim().split('\n')[0];
         this.logger.log(`    ✅ PMD disponible como comando global`);
         this.logger.log(`    Versión: ${pmdVersion}`);
         pmdAvailable = true;
       } catch (versionError) {
-        this.logger.warn(`    ⚠️  PMD no encontrado como comando global`);
-        this.logger.log(`    Error: ${(versionError as any).message.substring(0, 100)}`);
+        this.logger.debug(`    ⚠️  PMD no encontrado como comando global: ${(versionError as any).message.substring(0, 50)}`);
         
-        // Intentar buscar PMD en rutas comunes (incluyendo Docker)
-        const possiblePaths = [
-          '/opt/tools/pmd-bin-7.0.0/bin/pmd',
-          path.join(projectDir, 'tools/pmd/pmd-bin-*/bin/pmd'),
-          path.join(process.env.PROGRAMFILES || '', 'pmd/bin/pmd'),
-          path.join(process.env.APPDATA || '', 'npm/pmd'),
-          path.join(process.env.HOME || '', '.local/bin/pmd'),
-          '/usr/local/bin/pmd',
-          'C:\\Program Files\\pmd\\bin\\pmd.bat'
-        ];
-        
+        // Si no está en PATH, buscar en rutas específicas
         for (const possiblePath of possiblePaths) {
           try {
             const expandedPath = possiblePath.replace(/\*/g, '7.0.0');
+            this.logger.debug(`    Intentando: ${expandedPath}`);
+            
             if (process.platform === 'win32') {
               const batchPath = expandedPath.endsWith('.bat') ? expandedPath : `${expandedPath}.bat`;
               const versionCheck = await execAsync(`"${batchPath}" --version`, { timeout: 5000 });
@@ -549,7 +601,8 @@ export class ToolService {
               this.logger.log(`    Versión: ${pmdVersion}`);
               break;
             } else {
-              const versionCheck = await execAsync(`"${expandedPath}" --version`, { timeout: 5000 });
+              // En Linux/Docker, usar absolute path con shell explícito
+              const versionCheck = await execAsync(`"${expandedPath}" --version`, { timeout: 5000, shell: '/bin/bash' });
               pmdCommand = `"${expandedPath}"`;
               pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
               pmdAvailable = true;
@@ -558,6 +611,7 @@ export class ToolService {
               break;
             }
           } catch (e) {
+            this.logger.debug(`    ❌ No disponible en: ${possiblePath}`);
             // Continuar con siguiente opción
           }
         }
