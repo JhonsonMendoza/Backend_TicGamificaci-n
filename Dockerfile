@@ -104,13 +104,29 @@ RUN echo "📦 Instalando Semgrep via pip3..." && \
     pip3 install --no-cache-dir --break-system-packages semgrep 2>&1 && \
     echo "✓ Semgrep instalado via pip3" && \
     python3 -c "import semgrep; print('✓ Semgrep module loaded')" && \
-    echo "✅ Semgrep verificado"
-
-# Crear wrapper ejecutable para Semgrep
-RUN printf '#!/bin/sh\nexec python3 -m semgrep "$@"\n' > /opt/tools/bin/semgrep && \
-    chmod +x /opt/tools/bin/semgrep && \
-    ln -sf /opt/tools/bin/semgrep /usr/local/bin/semgrep && \
-    echo "✅ Wrapper de Semgrep creado"
+    echo "📍 Buscando binario ejecutable de Semgrep..." && \
+    which semgrep || echo "⚠️ semgrep no en PATH directo" && \
+    SEMGREP_BIN=$(find /usr/local -name "semgrep" -type f -executable 2>/dev/null | head -1) && \
+    if [ -z "$SEMGREP_BIN" ]; then \
+        SEMGREP_BIN=$(python3 -c "import site; print(site.USER_SITE or site.getsitepackages()[0])")/bin/semgrep; \
+        echo "📍 Intentando ubicación de pip: $SEMGREP_BIN"; \
+    fi && \
+    if [ -f "$SEMGREP_BIN" ]; then \
+        echo "✓ Binario encontrado en: $SEMGREP_BIN"; \
+        chmod +x "$SEMGREP_BIN"; \
+        ln -sf "$SEMGREP_BIN" /opt/tools/bin/semgrep; \
+        ln -sf "$SEMGREP_BIN" /usr/local/bin/semgrep; \
+        echo "✅ Symlinks creados para: $SEMGREP_BIN"; \
+    else \
+        echo "⚠️ Binario de Semgrep no encontrado, creando wrapper como fallback..."; \
+        printf '#!/bin/sh\nexec python3 -m semgrep "$@"\n' > /opt/tools/bin/semgrep; \
+        chmod +x /opt/tools/bin/semgrep; \
+        ln -sf /opt/tools/bin/semgrep /usr/local/bin/semgrep; \
+        echo "✅ Wrapper creado como fallback"; \
+    fi && \
+    echo "🔍 Verificando Semgrep..." && \
+    semgrep --version 2>&1 | head -1 && \
+    echo "✅ Semgrep instalado y verificado"
 
 # Asegurar que los symlinks están disponibles en PATH
 ENV PATH="/opt/tools/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
