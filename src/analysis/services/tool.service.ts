@@ -658,10 +658,13 @@ export class ToolService {
    */
   private async runSpotBugsDirectlyOnMavenProject(projectDir: string): Promise<ToolResult> {
     this.logger.log('📝 Ejecutando SpotBugs directo sobre proyecto Maven fallido...');
+    this.logger.log(`   Directorio del proyecto: ${projectDir}`);
     
     try {
       const classesDir = path.join(projectDir, 'target', 'classes');
       const outputXml = path.join(projectDir, 'target', 'spotbugs-direct.xml');
+      
+      this.logger.log(`   Buscando .class en: ${classesDir}`);
       
       // Verificar que existen archivos compilados
       let classFiles: string[] = [];
@@ -673,34 +676,64 @@ export class ToolService {
       
       if (classFiles.length === 0) {
         this.logger.warn('⚠️ No hay archivos .class compilados para analizar');
-        return {
-          tool: 'spotbugs',
-          success: false,
-          findings: [],
-          error: 'No hay archivos .class compilados. El proyecto puede tener errores de compilación.'
-        };
+        
+        // Intentar compilar manualmente con javac si hay archivos .java
+        try {
+          this.logger.log('🔧 Intentando compilar manualmente con javac...');
+          const javaFiles = await this.findFiles(projectDir, '**/*.java');
+          if (javaFiles.length > 0) {
+            await fs.mkdir(classesDir, { recursive: true });
+            const javaFilesStr = javaFiles.slice(0, 50).map(f => `"${f}"`).join(' ');
+            await execAsync(`javac -d "${classesDir}" ${javaFilesStr}`, { timeout: 60000 });
+            classFiles = await this.findFiles(classesDir, '**/*.class');
+            this.logger.log(`✅ Compilados ${classFiles.length} archivos .class manualmente`);
+          }
+        } catch (javacErr) {
+          this.logger.warn(`⚠️ Compilación manual también falló: ${javacErr.message}`);
+        }
+        
+        if (classFiles.length === 0) {
+          return {
+            tool: 'spotbugs',
+            success: false,
+            findings: [],
+            error: 'No hay archivos .class compilados. El proyecto puede tener errores de compilación.'
+          };
+        }
       }
       
       this.logger.log(`📍 Analizando ${classFiles.length} archivos .class desde ${classesDir}`);
       
-      // Buscar SpotBugs ejecutable
-      let spotbugsExe = 'spotbugs';
+      // Buscar SpotBugs ejecutable en múltiples ubicaciones
+      let spotbugsExe: string | null = null;
       const spotbugsPaths = [
         '/opt/tools/spotbugs/bin/spotbugs',
         '/opt/tools/spotbugs-4.8.3/bin/spotbugs',
         '/usr/local/bin/spotbugs',
+        '/usr/bin/spotbugs',
         'spotbugs'
       ];
       
+      this.logger.log('🔍 Buscando SpotBugs ejecutable...');
       for (const sbPath of spotbugsPaths) {
         try {
-          await execAsync(`${sbPath} -version`, { timeout: 5000 });
+          const { stdout } = await execAsync(`${sbPath} -version`, { timeout: 10000 });
           spotbugsExe = sbPath;
-          this.logger.log(`✅ SpotBugs encontrado en: ${sbPath}`);
+          this.logger.log(`✅ SpotBugs encontrado en: ${sbPath} - ${stdout.trim()}`);
           break;
         } catch (e) {
-          this.logger.debug(`❌ SpotBugs no disponible en ${sbPath}`);
+          this.logger.debug(`   ❌ No disponible: ${sbPath}`);
         }
+      }
+      
+      if (!spotbugsExe) {
+        this.logger.error('❌ SpotBugs CLI no encontrado en ninguna ruta');
+        return {
+          tool: 'spotbugs',
+          success: false,
+          findings: [],
+          error: 'SpotBugs CLI no está disponible en el sistema'
+        };
       }
       
       // Ejecutar SpotBugs
@@ -708,10 +741,12 @@ export class ToolService {
       this.logger.log(`📋 Comando: ${spotbugsCmd}`);
       
       try {
-        await execAsync(spotbugsCmd, { timeout: 300000 });
+        const { stdout, stderr } = await execAsync(spotbugsCmd, { timeout: 300000 });
         this.logger.log('✅ SpotBugs directo completado');
-      } catch (e) {
-        this.logger.warn('⚠️ SpotBugs completó (puede haber detectado bugs)');
+        if (stdout) this.logger.debug(`   stdout: ${stdout.substring(0, 200)}`);
+      } catch (e: any) {
+        // SpotBugs puede retornar código de error cuando encuentra bugs
+        this.logger.warn(`⚠️ SpotBugs completó con advertencia: ${e.message?.substring(0, 100)}`);
       }
       
       // Parsear resultados
@@ -726,6 +761,8 @@ export class ToolService {
       }
       
       const xmlContent = await fs.readFile(outputXml, 'utf-8');
+      this.logger.log(`   XML generado: ${xmlContent.length} bytes`);
+      
       const result = await parseXmlAsync(xmlContent);
       
       const bugInstances = (result as any).BugCollection?.BugInstance || [];
@@ -737,7 +774,7 @@ export class ToolService {
       
       return {
         tool: 'spotbugs',
-        success: normalizedFindings.length >= 0, // Éxito incluso si no hay bugs
+        success: true, // Éxito si llegamos aquí
         findings: normalizedFindings,
         findingsCount: normalizedFindings.length
       };
