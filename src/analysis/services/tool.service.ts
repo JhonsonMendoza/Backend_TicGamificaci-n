@@ -169,16 +169,23 @@ export class ToolService {
       // Detectar comando Maven disponible
       let mavenCmd = 'mvn';
       try {
-        await execAsync('mvn --version', { timeout: 5000 });
+        await execAsync('mvn --version', { timeout: 30000 });
         this.logger.log('✅ Maven encontrado como comando global');
       } catch (e) {
         this.logger.warn('⚠️ Maven no encontrado en PATH, intentando /usr/bin/mvn');
         mavenCmd = '/usr/bin/mvn';
         try {
-          await execAsync('/usr/bin/mvn --version', { timeout: 5000 });
+          await execAsync('/usr/bin/mvn --version', { timeout: 30000 });
           this.logger.log('✅ Maven encontrado en /usr/bin/mvn');
         } catch (e2) {
-          throw new Error('Maven no disponible en el sistema');
+          this.logger.error('❌ Maven no disponible - intentando SpotBugs directo');
+          // No lanzar error, retornar para que el fallback funcione
+          return {
+            tool: 'spotbugs',
+            success: false,
+            findings: [],
+            error: 'Maven not available - will try direct SpotBugs'
+          };
         }
       }
 
@@ -229,7 +236,7 @@ export class ToolService {
       this.logger.log('🔨 Paso 1: Compilando proyecto Maven...');
       let compilationSucceeded = false;
       try {
-        const { stdout: compileStdout, stderr: compileStderr } = await execAsync(`${mavenCmd} clean compile -DskipTests`, { cwd: projectDir, timeout: 180000 });
+        const { stdout: compileStdout, stderr: compileStderr } = await execAsync(`${mavenCmd} clean compile -DskipTests`, { cwd: projectDir, timeout: 300000 });
         this.logger.log('✅ Compilación Maven completada');
         
         if (compileStdout.includes('BUILD SUCCESS') || !compileStderr.toLowerCase().includes('[error]')) {
@@ -591,7 +598,7 @@ export class ToolService {
       
       try {
         this.logger.log(`Ejecutando: ${spotbugsCmd}`);
-        await execAsync(spotbugsCmd, { timeout: 120000 });
+        await execAsync(spotbugsCmd, { timeout: 300000 });
       } catch (e) {
         // SpotBugs puede devolver exit code diferente de 0 incluso si genera el XML
         this.logger.warn('⚠️ SpotBugs completó (puede haber bugs detectados)');
@@ -659,82 +666,87 @@ export class ToolService {
    * Usa los archivos .class ya compilados en target/classes
    */
   private async runSpotBugsDirectlyOnMavenProject(projectDir: string): Promise<ToolResult> {
-    this.logger.log('📝 Ejecutando SpotBugs directo sobre proyecto Maven fallido...');
-    this.logger.log(`   Directorio del proyecto: ${projectDir}`);
+    this.logger.log('📝 SpotBugs DIRECTO: Maven falló, compilando archivos individualmente...');
+    this.logger.log(`   Directorio: ${projectDir}`);
     
     try {
       const classesDir = path.join(projectDir, 'target', 'classes');
       const outputXml = path.join(projectDir, 'target', 'spotbugs-direct.xml');
       
-      this.logger.log(`   Buscando .class en: ${classesDir}`);
+      // Crear directorio de clases
+      await fs.mkdir(classesDir, { recursive: true });
       
-      // Verificar que existen archivos compilados
+      // Verificar si ya hay archivos .class de un intento anterior
       let classFiles: string[] = [];
       try {
         classFiles = await this.findFiles(classesDir, '**/*.class');
+        if (classFiles.length > 0) {
+          this.logger.log(`   Ya existen ${classFiles.length} archivos .class`);
+        }
       } catch (e) {
-        this.logger.warn(`⚠️ No se pudo leer directorio classes: ${e.message}`);
+        // Ignorar
       }
       
+      // Si no hay .class, intentar compilar con javac
       if (classFiles.length === 0) {
-        this.logger.warn('⚠️ No hay archivos .class compilados para analizar');
+        this.logger.log('🔧 Compilando archivos Java con javac...');
+        const javaFiles = await this.findFiles(projectDir, '**/*.java');
+        this.logger.log(`   Encontrados ${javaFiles.length} archivos .java`);
         
-        // Intentar compilar manualmente con javac si hay archivos .java
-        try {
-          this.logger.log('🔧 Intentando compilar manualmente con javac...');
-          const javaFiles = await this.findFiles(projectDir, '**/*.java');
-          
-          if (javaFiles.length > 0) {
-            await fs.mkdir(classesDir, { recursive: true });
-            
-            // Estrategia 1: Intentar compilar archivos uno por uno para obtener los que sí compilan
-            this.logger.log(`   Compilando ${javaFiles.length} archivos Java individualmente...`);
-            let compiledCount = 0;
-            
-            for (const javaFile of javaFiles.slice(0, 30)) { // Limitar a 30 archivos
-              try {
-                await execAsync(`javac -d "${classesDir}" "${javaFile}"`, { timeout: 10000 });
-                compiledCount++;
-              } catch (e) {
-                // Ignorar archivos que no compilan - es esperado para Spring
-              }
-            }
-            
-            if (compiledCount > 0) {
-              this.logger.log(`✅ Compilados ${compiledCount} archivos .class manualmente`);
-            }
-            
-            classFiles = await this.findFiles(classesDir, '**/*.class');
-            
-            // Si aún no hay nada, intentar compilar todo junto ignorando errores
-            if (classFiles.length === 0) {
-              this.logger.log('   Intentando compilación masiva con -Xlint:none...');
-              const javaFilesStr = javaFiles.slice(0, 50).map(f => `"${f}"`).join(' ');
-              try {
-                await execAsync(`javac -Xlint:none -d "${classesDir}" ${javaFilesStr} 2>/dev/null || true`, { timeout: 60000 });
-                classFiles = await this.findFiles(classesDir, '**/*.class');
-              } catch (e) {
-                // Ignorar
-              }
-            }
-          }
-        } catch (javacErr) {
-          this.logger.warn(`⚠️ Compilación manual también falló: ${javacErr.message}`);
-        }
-        
-        if (classFiles.length === 0) {
-          this.logger.log('ℹ️ SpotBugs omitido: El proyecto requiere dependencias externas (Spring, MongoDB, etc.) que no están disponibles.');
-          this.logger.log('   PMD, Semgrep y detección directa seguirán analizando el código fuente.');
+        if (javaFiles.length === 0) {
           return {
             tool: 'spotbugs',
             success: false,
             findings: [],
-            error: 'SpotBugs omitido: proyecto requiere dependencias externas no disponibles (Spring, MongoDB, etc.). PMD y Semgrep analizan el código fuente.'
+            error: 'No hay archivos .java para compilar'
           };
+        }
+        
+        let compiledCount = 0;
+        const failedFiles: string[] = [];
+        
+        // Compilar cada archivo individualmente, ignorando errores
+        for (const javaFile of javaFiles) {
+          try {
+            // Usar -proc:none para desactivar procesamiento de anotaciones
+            // Usar -nowarn para no mostrar warnings
+            await execAsync(`javac -proc:none -nowarn -d "${classesDir}" "${javaFile}" 2>/dev/null`, { 
+              timeout: 15000,
+              shell: '/bin/sh'
+            });
+            compiledCount++;
+          } catch (e) {
+            // Archivo no compiló - probablemente tiene dependencias externas
+            failedFiles.push(path.basename(javaFile));
+          }
+        }
+        
+        this.logger.log(`   ✅ Compilados: ${compiledCount}/${javaFiles.length} archivos`);
+        if (failedFiles.length > 0 && failedFiles.length <= 10) {
+          this.logger.log(`   ⚠️ No compilaron: ${failedFiles.join(', ')}`);
+        } else if (failedFiles.length > 10) {
+          this.logger.log(`   ⚠️ No compilaron: ${failedFiles.length} archivos (dependencias externas)`);
+        }
+        
+        // Verificar archivos compilados
+        try {
+          classFiles = await this.findFiles(classesDir, '**/*.class');
+        } catch (e) {
+          classFiles = [];
         }
       }
       
-      this.logger.log(`📍 Analizando ${classFiles.length} archivos .class desde ${classesDir}`);
+      if (classFiles.length === 0) {
+        this.logger.log('ℹ️ SpotBugs omitido: Ningún archivo Java pudo compilarse (todos requieren dependencias externas)');
+        return {
+          tool: 'spotbugs',
+          success: false,
+          findings: [],
+          error: 'SpotBugs omitido: los archivos Java requieren dependencias externas (Spring, MongoDB, etc.)'
+        };
+      }
+      
+      this.logger.log(`📍 Ejecutando SpotBugs sobre ${classFiles.length} archivos .class...`);
       
       // Buscar SpotBugs ejecutable en múltiples ubicaciones
       let spotbugsExe: string | null = null;
@@ -900,7 +912,7 @@ export class ToolService {
       
       try {
         const pmdResult = await execAsync(pmdCmd, { 
-          timeout: 120000,
+          timeout: 300000,
           cwd: projectDir,
           maxBuffer: 10 * 1024 * 1024
         } as any);
@@ -935,7 +947,7 @@ export class ToolService {
             
             try {
               await execAsync(mavenCmd, { 
-                timeout: 120000,
+                timeout: 300000,
                 cwd: projectDir,
                 maxBuffer: 10 * 1024 * 1024
               } as any);
@@ -1136,9 +1148,9 @@ export class ToolService {
       this.logger.log(`📋 Comando Semgrep: semgrep [configs] --json --output=...`);
       
       try {
-        this.logger.log(`⏳ Ejecutando Semgrep (timeout: 120 segundos)...`);
+        this.logger.log(`⏳ Ejecutando Semgrep (timeout: 5 minutos)...`);
         const result = await execAsync(command, { 
-          timeout: 120000,
+          timeout: 300000,
           maxBuffer: 10 * 1024 * 1024
         } as any);
         
