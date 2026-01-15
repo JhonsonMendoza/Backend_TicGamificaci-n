@@ -21,9 +21,13 @@ RUN npm run build
 # Instalar dependencias necesarias para herramientas en builder
 RUN apk add --no-cache \
     openjdk11 \
+    glibc \
+    glibc-bin \
+    glibc-i18n \
     curl \
     unzip \
-    bash
+    bash \
+    musl-utils
 
 # Crear directorio de herramientas
 RUN mkdir -p /opt/tools/bin
@@ -83,11 +87,21 @@ RUN apk add --no-cache \
 # Crear directorio de herramientas
 RUN mkdir -p /opt/tools/bin
 
+# ============ INSTALAR LIBRERÍAS DEL SISTEMA PARA JAVA ============
+# CRÍTICO: Java necesita estas librerías dinámicas, especialmente glibc
+RUN apk add --no-cache \
+    glibc \
+    glibc-bin \
+    glibc-i18n \
+    tzdata
+
 # ============ COPIAR JAVA COMPILADO DEL BUILDER ============
 # Copiar Java completo del builder (no reinstalar, use el compilado)
 COPY --from=builder /usr/lib/jvm/java-11-openjdk /usr/lib/jvm/java-11-openjdk
 COPY --from=builder /usr/bin/java* /usr/bin/
 COPY --from=builder /usr/bin/jps /usr/bin/
+COPY --from=builder /usr/lib/ld-musl-x86_64.so.1 /lib/ld-musl-x86_64.so.1 2>/dev/null || true
+COPY --from=builder /lib/ld-musl-x86_64.so.1 /lib/ 2>/dev/null || true
 
 # Configurar JAVA_HOME
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk
@@ -99,20 +113,25 @@ COPY --from=builder /opt/tools/pmd /opt/tools/pmd
 # Copiar SpotBugs desde builder  
 COPY --from=builder /opt/tools/spotbugs /opt/tools/spotbugs
 
-# Verificar que los COPYs funcionaron
-RUN echo "✅ COPY desde builder completado" && \
-    test -d /opt/tools/pmd && echo "   PMD: ✓" || echo "   PMD: ✗ NO COPIADO" && \
-    test -d /opt/tools/spotbugs && echo "   SpotBugs: ✓" || echo "   SpotBugs: ✗ NO COPIADO" && \
+# ============ VERIFICACIÓN INMEDIATA POST-COPY ============
+RUN echo "🔍 VERIFICACIÓN POST-COPY DE HERRAMIENTAS" && \
     echo "" && \
-    echo "🔍 Verificación POST-COPY de PMD:" && \
-    ls -la /opt/tools/pmd/bin/pmd 2>/dev/null || echo "❌ No existe /opt/tools/pmd/bin/pmd" && \
-    test -x /opt/tools/pmd/bin/pmd && echo "✓ Ejecutable" || echo "❌ NO ejecutable" && \
-    file /opt/tools/pmd/bin/pmd 2>/dev/null || echo "❌ No se puede verificar tipo" && \
+    echo "📁 Listando /opt/tools:" && \
+    ls -la /opt/tools/ && \
     echo "" && \
-    echo "🔍 Verificación POST-COPY de SpotBugs:" && \
-    ls -la /opt/tools/spotbugs/bin/spotbugs 2>/dev/null || echo "❌ No existe /opt/tools/spotbugs/bin/spotbugs" && \
-    test -x /opt/tools/spotbugs/bin/spotbugs && echo "✓ Ejecutable" || echo "❌ NO ejecutable" && \
-    file /opt/tools/spotbugs/bin/spotbugs 2>/dev/null || echo "❌ No se puede verificar tipo"
+    echo "📁 Contenido de PMD:" && \
+    ls -la /opt/tools/pmd/bin/ 2>/dev/null | head -10 && \
+    echo "" && \
+    echo "📁 Contenido de SpotBugs:" && \
+    ls -la /opt/tools/spotbugs/bin/ 2>/dev/null | head -10 && \
+    echo "" && \
+    echo "🧪 TEST 1: PMD - Intentando ejecutar --version" && \
+    /opt/tools/pmd/bin/pmd --version 2>&1 || echo "❌ FALLÓ PMD" && \
+    echo "" && \
+    echo "🧪 TEST 2: SpotBugs - Intentando ejecutar -version" && \
+    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 || echo "❌ FALLÓ SpotBugs" && \
+    echo "" && \
+    echo "✅ POST-COPY VERIFICATION COMPLETED"
 
 # ============ INSTALAR SEMGREP EN RUNTIME ============
 RUN echo "📦 Instalando Semgrep via pip3..." && \
