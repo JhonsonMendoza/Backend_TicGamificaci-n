@@ -513,7 +513,54 @@ export class AnalysisService {
     let explanation = '';
     let recommendation = '';
     
-    if (msgLower.includes('system.out') || msgLower.includes('system.err') || msgLower.includes('println')) {
+    // ========== SPOTBUGS ESPECÍFICOS ==========
+    if (msgLower.includes('ei_expose_rep') || msgLower.includes('expose_rep')) {
+      title = '🔓 Expones datos internos de tu clase';
+      explanation = 'Tu método getter retorna directamente un objeto mutable (como List o Date). Quien lo reciba puede modificar los datos internos de tu clase sin que te des cuenta.';
+      recommendation = 'Retorna una copia: return new ArrayList<>(this.lista); o return new Date(this.fecha.getTime());';
+    } else if (msgLower.includes('ms_should_be_final') || msgLower.includes('should_be_final')) {
+      title = '🔒 Variable estática debería ser final';
+      explanation = 'Las variables static que no cambian deberían ser final. Esto previene modificaciones accidentales y mejora el rendimiento.';
+      recommendation = 'Cambia: static String NOMBRE = "valor"; a: static final String NOMBRE = "valor";';
+    } else if (msgLower.includes('dls_dead_local_store') || msgLower.includes('dead_local')) {
+      title = '🧹 Variable asignada pero nunca usada';
+      explanation = 'Guardaste un valor en una variable pero luego nunca la usaste. Esto confunde a otros programadores.';
+      recommendation = 'Elimina la variable o úsala. Si es para debugging, comenta por qué está ahí.';
+    } else if (msgLower.includes('nm_method_naming') || msgLower.includes('method_naming')) {
+      title = '📝 Nombre de método no sigue convención';
+      explanation = 'En Java, los métodos usan camelCase: calcularTotal(), obtenerUsuario(). Esto hace el código más legible.';
+      recommendation = 'Renombra el método siguiendo camelCase. Ejemplo: GetUser → getUser';
+    } else if (msgLower.includes('se_bad_field') || msgLower.includes('serializable')) {
+      title = '⚠️ Campo no serializable en clase Serializable';
+      explanation = 'Tu clase implementa Serializable pero tiene campos que no se pueden serializar. Esto causará errores al guardar/enviar objetos.';
+      recommendation = 'Marca el campo como transient si no necesitas guardarlo, o haz que el tipo del campo también sea Serializable.';
+    } else if (msgLower.includes('urv_') || msgLower.includes('return_value_ignored')) {
+      title = '⚠️ Ignorando valor de retorno importante';
+      explanation = 'Llamaste a un método que retorna algo importante (como un nuevo objeto) pero no guardaste el resultado.';
+      recommendation = 'String en Java es inmutable. str.trim() NO modifica str, retorna uno nuevo. Usa: str = str.trim();';
+    } else if (msgLower.includes('bc_unconfirmed_cast') || msgLower.includes('unconfirmed_cast')) {
+      title = '⚠️ Cast sin verificar el tipo';
+      explanation = 'Estás haciendo cast a un tipo sin verificar primero. Si el objeto es de otro tipo, tu programa crasheará.';
+      recommendation = 'Verifica primero: if (obj instanceof MiClase) { MiClase mc = (MiClase) obj; }';
+    } else if (msgLower.includes('np_null') || msgLower.includes('null_dereference')) {
+      title = '🔴 Posible NullPointerException';
+      explanation = 'Estás usando una variable que podría ser null. Si es null, tu programa crasheará.';
+      recommendation = 'Verifica antes de usar: if (variable != null) { variable.hacerAlgo(); }';
+    } else if (msgLower.includes('os_open_stream') || msgLower.includes('open_stream')) {
+      title = '🔴 Stream abierto sin cerrar';
+      explanation = 'Abriste un archivo/conexión pero no lo cierras. Esto causa memory leaks y puede bloquear archivos.';
+      recommendation = 'Usa try-with-resources: try (InputStream is = new FileInputStream(f)) { ... }';
+    } else if (msgLower.includes('sql_nonconstant') || msgLower.includes('sql_prepared')) {
+      title = '🔴 SQL con concatenación de strings';
+      explanation = 'Concatenar strings para SQL es peligroso. Un atacante puede inyectar código SQL malicioso.';
+      recommendation = 'Usa PreparedStatement: ps.setString(1, nombre); NUNCA: "SELECT * FROM users WHERE name=\'" + nombre + "\'"';
+    } else if (msgLower.includes('pzla_') || msgLower.includes('prefer_zero_length_arrays')) {
+      title = '💡 Retorna array vacío en lugar de null';
+      explanation = 'Retornar null obliga a quien llama a verificar. Es más seguro retornar un array/lista vacío.';
+      recommendation = 'En lugar de return null; usa return new String[0]; o return Collections.emptyList();';
+    }
+    // ========== PMD Y GENERALES ==========
+    else if (msgLower.includes('system.out') || msgLower.includes('system.err') || msgLower.includes('println')) {
       title = '📝 No uses System.out.println() en código profesional';
       explanation = 'System.out.println() está bien para aprender, pero en código real debes usar un Logger.';
       recommendation = 'Usa logger.info("Mi mensaje") en lugar de System.out.println("Mi mensaje")';
@@ -537,74 +584,46 @@ export class AnalysisService {
       title = '⚠️ Variable puede ser null - causará crash';
       explanation = 'Si usas una variable null sin verificar, el programa se detendrá con NullPointerException.';
       recommendation = 'Siempre verifica: if (variable != null) { variable.usar(); }';
-    } else if (msgLower.includes('file') && (msgLower.includes('stream') || msgLower.includes('reader') || msgLower.includes('writer'))) {
-      title = '📁 Manejo incorrecto de archivos';
-      explanation = 'FileInputStream, FileOutputStream y streams necesitan cerrarse correctamente.';
-      recommendation = 'Usa try-with-resources para cerrar automáticamente los recursos';
+    } else if (msgLower.includes('emptycatch') || msgLower.includes('empty catch')) {
+      title = '🚨 Catch vacío - ¡Los errores se pierden!';
+      explanation = 'Si haces catch {} sin código, los errores ocurren en silencio y no sabrás por qué falla tu app.';
+      recommendation = 'Mínimo loguea: catch (Exception e) { logger.error("Error: ", e); }';
+    } else if (msgLower.includes('avoidprintstacktrace') || msgLower.includes('printstacktrace')) {
+      title = '📝 Usa Logger en vez de printStackTrace()';
+      explanation = 'printStackTrace() imprime a consola que no siempre es visible. Los logs profesionales van a archivos.';
+      recommendation = 'Usa: logger.error("Mensaje descriptivo", excepcion);';
+    } else if (msgLower.includes('unusedlocal') || msgLower.includes('unused local') || msgLower.includes('unused private')) {
+      title = '🧹 Código muerto - Variable sin usar';
+      explanation = 'Tienes código que no se usa. Esto confunde y hace el programa más difícil de entender.';
+      recommendation = 'Elimina variables y métodos que no uses. Mantén el código limpio.';
+    } else if (msgLower.includes('localvariablecouldbefinal') || msgLower.includes('could be final')) {
+      title = '💡 Variable podría ser final';
+      explanation = 'Si una variable no cambia después de asignarla, declárala como final. Previene bugs.';
+      recommendation = 'Cambia: String nombre = "Juan"; a: final String nombre = "Juan";';
+    } else if (msgLower.includes('shortvariable') || msgLower.includes('short variable') || msgLower.includes('avoid variables with short names')) {
+      title = '📝 Nombre de variable muy corto';
+      explanation = 'Variables como "x", "i1", "s" son difíciles de entender. Los nombres descriptivos hacen el código legible.';
+      recommendation = 'Usa nombres que expliquen qué contienen: contador, nombreUsuario, precioTotal';
+    } else if (msgLower.includes('atleastoneconstructor') || msgLower.includes('at least one constructor')) {
+      title = '💡 Clase sin constructor explícito';
+      explanation = 'Es buena práctica tener al menos un constructor, aunque sea el default, para claridad.';
+      recommendation = 'Agrega: public MiClase() { } o un constructor con parámetros que necesites.';
+    } else if (msgLower.includes('methodargumentcouldbefinal') || msgLower.includes('parameter') && msgLower.includes('final')) {
+      title = '💡 Parámetro podría ser final';
+      explanation = 'Si no modificas un parámetro dentro del método, declararlo final previene errores accidentales.';
+      recommendation = 'Cambia: void metodo(String nombre) a: void metodo(final String nombre)';
+    } else if (msgLower.includes('controlstatementbraces') || msgLower.includes('should have braces')) {
+      title = '⚠️ If/else sin llaves - peligroso';
+      explanation = 'Escribir if sin { } es peligroso. Si agregas una línea después, no estará dentro del if.';
+      recommendation = 'Siempre usa llaves: if (condicion) { accion(); } aunque sea una sola línea.';
+    } else if (msgLower.includes('integrity') || msgLower.includes('missing-integrity')) {
+      title = '🔒 Recurso externo sin verificación de integridad';
+      explanation = 'Los scripts/estilos externos deben tener atributo "integrity" para prevenir ataques.';
+      recommendation = 'Agrega integrity="sha384-..." y crossorigin="anonymous" a tus tags <script> y <link>';
     } else if (msgLower.includes('xss') || (msgLower.includes('script') && msgLower.includes('user'))) {
       title = '🔴 XSS - Input del usuario no validado';
       explanation = 'Si muestras texto del usuario en HTML sin validar, un atacante inyecta scripts maliciosos.';
-      recommendation = 'En JSP usa taglib o escapeador: <c:out value="${usuarioInput}"/>';
-    } else if (msgLower.includes('random') && msgLower.includes('secure')) {
-      title = '🔴 Random() no es seguro para tokens';
-      explanation = 'Math.random() es predecible. Un atacante puede adivinar tokens o sesiones.';
-      recommendation = 'Para criptografía usa: new SecureRandom().nextBytes(buffer);';
-    } else if (msgLower.includes('path') && msgLower.includes('traversal')) {
-      title = '🔴 Path Traversal - Acceso a archivos malicioso';
-      explanation = 'Si un usuario escribe "../../../etc/passwd", accede a archivos fuera de su carpeta.';
-      recommendation = 'Valida rutas: Path full = base.resolve(userPath).normalize();';
-    } else if (msgLower.includes('command') && msgLower.includes('inject')) {
-      title = '🔴 Command Injection - Ejecución de comandos peligrosa';
-      explanation = 'Runtime.exec() con input del usuario permite atacantes ejecutar comandos arbitrarios.';
-      recommendation = 'Evita Runtime.exec() con input del usuario. Si es necesario, valida muy estrictamente.';
-    } else if (msgLower.includes('equal') || msgLower.includes('==') || (msgLower.includes('comparison') && msgLower.includes('string'))) {
-      title = '🔍 Comparación incorrecta de objetos';
-      explanation = '== compara si son el mismo objeto en memoria. Para contenido, usa .equals().';
-      recommendation = 'Usa: if (usuario1.equals(usuario2)) o usuario1.equalsIgnoreCase(usuario2);';
-    } else if (msgLower.includes('unused') || msgLower.includes('never read') || msgLower.includes('not used')) {
-      title = '🧹 Variable declarada pero nunca usada';
-      explanation = 'Mantener variables sin usar hace el código confuso y difícil de mantener.';
-      recommendation = 'Si no la usas, elimínala. Otros programadores pensarán que falta algo.';
-    } else if (msgLower.includes('exception') || msgLower.includes('catch') || msgLower.includes('error handling')) {
-      title = '🚨 Manejo incorrecto de errores';
-      explanation = 'Si haces catch sin hacer nada, ocultarás errores. Los bugs serán imposibles de encontrar.';
-      recommendation = 'Siempre maneja excepciones: logger.error("Mensaje", e) o throw new RuntimeException(e);';
-    } else if (msgLower.includes('performance') || msgLower.includes('inefficient') || msgLower.includes('slow')) {
-      title = '⚡ Código ineficiente - mejora el rendimiento';
-      explanation = 'Este código podría ser mucho más rápido usando mejores estructuras y algoritmos.';
-      recommendation = 'Usa HashMap en lugar de ArrayList, evita loops anidados, carga datos una sola vez.';
-    } else if (msgLower.includes('integrity') || msgLower.includes('missing-integrity')) {
-      title = '🔒 Recurso externo sin verificación de integridad';
-      explanation = 'Los scripts/estilos externos deben tener atributo "integrity" para prevenir ataques de modificación.';
-      recommendation = 'Agrega integrity="sha384-..." y crossorigin="anonymous" a tus tags <script> y <link>';
-    } else if (msgLower.includes('csrf') || msgLower.includes('cross-site request')) {
-      title = '🔴 Posible vulnerabilidad CSRF';
-      explanation = 'Sin protección CSRF, un atacante puede ejecutar acciones en nombre de usuarios logueados.';
-      recommendation = 'Usa tokens CSRF en formularios: <input type="hidden" name="_csrf" th:value="${_csrf.token}">';
-    } else if (msgLower.includes('cors') || msgLower.includes('cross-origin')) {
-      title = '⚠️ Configuración CORS permisiva';
-      explanation = 'Permitir todos los orígenes (*) puede exponer tu API a ataques desde sitios maliciosos.';
-      recommendation = 'Limita CORS a dominios específicos: @CrossOrigin(origins = "https://tudominio.com")';
-    } else if (msgLower.includes('http') && (msgLower.includes('https') || msgLower.includes('insecure'))) {
-      title = '🔒 Conexión insegura HTTP en lugar de HTTPS';
-      explanation = 'HTTP transmite datos sin encriptar. Las contraseñas viajan en texto plano.';
-      recommendation = 'Siempre usa HTTPS para conexiones externas, especialmente para autenticación.';
-    } else if (msgLower.includes('cookie') && (msgLower.includes('secure') || msgLower.includes('httponly'))) {
-      title = '🔒 Cookie sin atributos de seguridad';
-      explanation = 'Las cookies de sesión deben tener HttpOnly (previene robo XSS) y Secure (solo HTTPS).';
-      recommendation = 'Configura: cookie.setHttpOnly(true); cookie.setSecure(true);';
-    } else if (msgLower.includes('deserialization') || msgLower.includes('deserialize')) {
-      title = '🔴 Deserialización insegura';
-      explanation = 'Deserializar datos no confiables puede ejecutar código malicioso en tu servidor.';
-      recommendation = 'Nunca deserialices datos de fuentes no confiables. Usa JSON en lugar de ObjectInputStream.';
-    } else if (msgLower.includes('logging') || msgLower.includes('log4j') || msgLower.includes('sensitive')) {
-      title = '⚠️ Información sensible en logs';
-      explanation = 'Loguear contraseñas, tokens o datos personales es un riesgo de seguridad.';
-      recommendation = 'Nunca loguees datos sensibles. Usa logger.info("Usuario {} autenticado", username);';
-    } else if (msgLower.includes('deprecated')) {
-      title = '⚠️ Uso de API deprecada';
-      explanation = 'Las APIs deprecadas pueden ser eliminadas en futuras versiones o tener problemas de seguridad.';
-      recommendation = 'Actualiza a la versión recomendada según la documentación oficial.';
+      recommendation = 'Escapa el HTML del usuario antes de mostrarlo.';
     }
 
     const severityEmoji = severity === 'high' ? '🔴' : severity === 'medium' ? '🟡' : '🟢';
@@ -620,9 +639,9 @@ export class AnalysisService {
     }
 
     let genericExplanation = severity === 'high' 
-      ? 'Este es un problema importante que debes corregir. Puede causar errores graves.'
+      ? 'Este es un problema importante que debes corregir. Puede causar errores graves o vulnerabilidades de seguridad.'
       : severity === 'medium'
-      ? 'Este es un problema a revisar. Mejorará la seguridad y mantenibilidad.'
+      ? 'Este es un problema a revisar. Mejorará la calidad y mantenibilidad de tu código.'
       : 'Esta es una sugerencia de mejora. Tu código será más limpio y profesional.';
       
     return {
@@ -730,9 +749,50 @@ export class AnalysisService {
     }
     this.logger.log(`📊 Misiones por herramienta: ${JSON.stringify(countByTool)}`);
 
+    // ========== AGRUPAR MISIONES SIMILARES ==========
+    // Agrupar por: title + herramienta (para no mostrar 10 veces "System.out.println")
+    const groupedMissions = new Map<string, { mission: typeof missionsToCreate[0]; count: number; files: Set<string> }>();
+    
+    for (const m of missionsToCreate) {
+      // Crear clave de agrupación: título base (sin emojis de severidad) + herramienta
+      const baseTitle = (m.title || '').replace(/^[🔴🟡🟢⚠️💡🔓🔒🧹📝⚡📚🚨🔍📁📋🎯✅]\s*/g, '').trim();
+      const tool = m.metadata?.tool || 'unknown';
+      const groupKey = `${tool}::${baseTitle}`;
+      
+      const existing = groupedMissions.get(groupKey);
+      if (existing) {
+        existing.count++;
+        if (m.filePath) existing.files.add(m.filePath);
+      } else {
+        const files = new Set<string>();
+        if (m.filePath) files.add(m.filePath);
+        groupedMissions.set(groupKey, { mission: m, count: 1, files });
+      }
+    }
+
+    // Convertir grupos a misiones con conteo en el título
+    const consolidatedMissions: typeof missionsToCreate = [];
+    for (const [_, group] of groupedMissions) {
+      const m = { ...group.mission };
+      if (group.count > 1) {
+        // Agregar conteo al título
+        const filesCount = group.files.size;
+        const countSuffix = filesCount > 1 
+          ? ` (${group.count}x en ${filesCount} archivos)`
+          : ` (${group.count} veces)`;
+        m.title = m.title + countSuffix;
+        
+        // Agregar info adicional en descripción
+        m.description = m.description + `\n\n---\n\n**📊 Encontrado ${group.count} veces** en ${filesCount} archivo(s):\n${Array.from(group.files).slice(0, 5).map(f => `- ${f.split('/').pop() || f.split('\\').pop()}`).join('\n')}${filesCount > 5 ? `\n- ... y ${filesCount - 5} más` : ''}`;
+      }
+      consolidatedMissions.push(m);
+    }
+
+    this.logger.log(`📦 Misiones agrupadas: ${missionsToCreate.length} → ${consolidatedMissions.length}`);
+
     // FILTRAR: Priorizar HIGH y MEDIUM, limitar LOW
     // Ordenar por severidad: high primero, luego medium, luego low
-    const sortedMissions = missionsToCreate.sort((a, b) => {
+    const sortedMissions = consolidatedMissions.sort((a, b) => {
       const order = { high: 0, medium: 1, low: 2 };
       return (order[a.severity] || 2) - (order[b.severity] || 2);
     });
