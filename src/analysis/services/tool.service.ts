@@ -182,11 +182,54 @@ export class ToolService {
         }
       }
 
+      // Paso 1: Verificar y preparar configuración de SpotBugs en pom.xml
+      this.logger.log('🔧 Paso 0: Verificando configuración de SpotBugs en pom.xml...');
+      const pomPath = path.join(projectDir, 'pom.xml');
+      let pomContent = await fs.readFile(pomPath, 'utf-8');
+      
+      // Verificar si SpotBugs plugin está configurado
+      const hasSpotBugsPlugin = pomContent.includes('spotbugs-maven-plugin') || 
+                                 pomContent.includes('com.github.spotbugs');
+      
+      if (!hasSpotBugsPlugin) {
+        this.logger.log('ℹ️ SpotBugs plugin no configurado en pom.xml, añadiendo temporalmente...');
+        
+        // Buscar la sección de plugins para insertar SpotBugs
+        const spotbugsPluginXml = `
+      <!-- SpotBugs Plugin añadido temporalmente para análisis -->
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <version>4.8.3.1</version>
+        <configuration>
+          <xmlOutput>true</xmlOutput>
+          <xmlOutputDirectory>\${project.build.directory}</xmlOutputDirectory>
+          <failOnError>false</failOnError>
+        </configuration>
+      </plugin>`;
+        
+        // Intentar insertar en diferentes ubicaciones
+        if (pomContent.includes('</plugins>')) {
+          pomContent = pomContent.replace('</plugins>', `${spotbugsPluginXml}\n    </plugins>`);
+          await fs.writeFile(pomPath, pomContent, 'utf-8');
+          this.logger.log('✅ Plugin SpotBugs añadido a pom.xml');
+        } else if (pomContent.includes('<build>')) {
+          const buildPluginsXml = `<plugins>${spotbugsPluginXml}\n    </plugins>`;
+          pomContent = pomContent.replace('<build>', `<build>\n    ${buildPluginsXml}`);
+          await fs.writeFile(pomPath, pomContent, 'utf-8');
+          this.logger.log('✅ Sección plugins con SpotBugs añadida a pom.xml');
+        } else {
+          this.logger.warn('⚠️ No se pudo añadir SpotBugs plugin automáticamente');
+        }
+      } else {
+        this.logger.log('✅ SpotBugs plugin ya está configurado en pom.xml');
+      }
+
       // Paso 1: Compilar proyecto Maven
       this.logger.log('🔨 Paso 1: Compilando proyecto Maven...');
       let compilationSucceeded = false;
       try {
-        const { stdout: compileStdout, stderr: compileStderr } = await execAsync(`${mavenCmd} clean compile`, { cwd: projectDir, timeout: 180000 });
+        const { stdout: compileStdout, stderr: compileStderr } = await execAsync(`${mavenCmd} clean compile -DskipTests`, { cwd: projectDir, timeout: 180000 });
         this.logger.log('✅ Compilación Maven completada');
         
         if (compileStdout.includes('BUILD SUCCESS') || !compileStderr.toLowerCase().includes('[error]')) {
@@ -194,10 +237,21 @@ export class ToolService {
           compilationSucceeded = true;
         } else {
           this.logger.warn('⚠️ Compilación completada pero con posibles errores');
+          compilationSucceeded = true; // Intentar continuar de todos modos
         }
       } catch (compileError) {
         this.logger.error(`❌ Error en compilación Maven: ${compileError.message}`);
-        this.logger.warn('⚠️ La compilación falló - continuaremos con análisis directo');
+        // Verificar si aun así hay archivos .class generados
+        const classesDir = path.join(projectDir, 'target', 'classes');
+        try {
+          const classFiles = await this.findFiles(classesDir, '**/*.class');
+          if (classFiles.length > 0) {
+            this.logger.log(`✅ A pesar del error, hay ${classFiles.length} archivos .class - continuando`);
+            compilationSucceeded = true;
+          }
+        } catch (e) {
+          // No hay archivos .class
+        }
       }
       
       if (!compilationSucceeded) {
@@ -220,17 +274,35 @@ export class ToolService {
         path.join(projectDir, 'target', 'spotbugs-results.xml'),
         path.join(projectDir, 'target', 'spotbugsTemp.xml'),
         path.join(projectDir, 'target', 'spotbugs-direct.xml'),
-        path.join(projectDir, 'target', 'site', 'spotbugs.xml')
+        path.join(projectDir, 'target', 'site', 'spotbugs.xml'),
+        path.join(projectDir, 'target', 'spotbugs-result.xml')
       ];
       
       try {
-        spotbugsOutput = await execAsync(`${mavenCmd} spotbugs:spotbugs -DskipTests`, { cwd: projectDir, timeout: 300000 });
+        // Usar -DxmlOutput=true para asegurar que se genere XML
+        const spotbugsCmd = `${mavenCmd} spotbugs:spotbugs -DskipTests -DxmlOutput=true`;
+        this.logger.log(`📋 Comando: ${spotbugsCmd}`);
+        spotbugsOutput = await execAsync(spotbugsCmd, { cwd: projectDir, timeout: 300000 });
         this.logger.log('✅ Maven spotbugs:spotbugs completado');
-      } catch (spotbugsError) {
+      } catch (spotbugsError: any) {
         // SpotBugs con Maven puede fallar si encuentra bugs, pero el XML se genera de todos modos
-        this.logger.warn(`⚠️ Maven spotbugs returned non-zero exit: ${spotbugsError.message.substring(0, 100)}`);
-        this.logger.log('ℹ️ Intentaremos ejecutar SpotBugs directamente...');
-        useDirectSpotBugs = true;
+        const errMsg = spotbugsError.message || '';
+        this.logger.warn(`⚠️ Maven spotbugs returned non-zero exit: ${errMsg.substring(0, 150)}`);
+        
+        // Verificar si hay archivos XML generados a pesar del error
+        let foundXml = false;
+        for (const possiblePath of possiblePaths) {
+          if (await this.fileExists(possiblePath)) {
+            foundXml = true;
+            this.logger.log(`✅ A pesar del error, se encontró XML en: ${possiblePath}`);
+            break;
+          }
+        }
+        
+        if (!foundXml) {
+          this.logger.log('ℹ️ Intentaremos ejecutar SpotBugs directamente...');
+          useDirectSpotBugs = true;
+        }
       }
       
       // Si Maven falló, intentar SpotBugs directamente
@@ -248,17 +320,19 @@ export class ToolService {
           
           this.logger.log(`📍 Analizando ${classFiles.length} archivos .class desde ${classesDir}`);
           
-          // Buscar SpotBugs ejecutable
+          // Buscar SpotBugs ejecutable (rutas del Dockerfile)
           let spotbugsCmd = 'spotbugs';
           const spotbugsPaths = [
+            '/opt/tools/spotbugs/bin/spotbugs',
+            '/usr/local/bin/spotbugs',
             '/opt/tools/spotbugs-4.8.3/bin/spotbugs',
-            '/usr/local/bin/spotbugs'
+            'spotbugs'
           ];
           
           for (const sbPath of spotbugsPaths) {
             try {
-              await execAsync(`"${sbPath}" -version`, { timeout: 5000 });
-              spotbugsCmd = `"${sbPath}"`;
+              await execAsync(`${sbPath} -version`, { timeout: 5000 });
+              spotbugsCmd = sbPath;
               this.logger.log(`✅ SpotBugs encontrado en: ${sbPath}`);
               break;
             } catch (e) {
@@ -267,7 +341,8 @@ export class ToolService {
           }
           
           // Ejecutar SpotBugs directamente
-          const spotbugsCmd_str = `${spotbugsCmd} -xml -output "${outputXml}" "${classesDir}"`;
+          // Sintaxis correcta: spotbugs -textui -xml:withMessages -output <file> <classDir>
+          const spotbugsCmd_str = `${spotbugsCmd} -textui -xml:withMessages -output "${outputXml}" "${classesDir}"`;
           this.logger.log(`📋 Comando: ${spotbugsCmd_str}`);
           
           await execAsync(spotbugsCmd_str, { timeout: 300000 });
@@ -509,7 +584,8 @@ export class ToolService {
       this.logger.log('🐛 Paso 4: Ejecutando SpotBugs CLI...');
       
       const outputXml = path.join(projectDir, 'spotbugs-output.xml');
-      const spotbugsCmd = `spotbugs -textui -output "${outputXml}" -outputFormat xml "${classDir}"`;
+      // Sintaxis correcta: spotbugs -textui -xml:withMessages -output <file> <classDir>
+      const spotbugsCmd = `spotbugs -textui -xml:withMessages -output "${outputXml}" "${classDir}"`;
       
       try {
         this.logger.log(`Ejecutando: ${spotbugsCmd}`);
@@ -627,22 +703,58 @@ export class ToolService {
         .join(',');
       
       let pmdExecuted = false;
-      let pmdCmd = `pmd check -d "${sourcePaths}" -f xml -o "${outputXml}" ${rulesParam}`;
+      
+      // Detectar PMD ejecutable disponible (ruta absoluta tiene prioridad)
+      let pmdExe = 'pmd';
+      const pmdPaths = [
+        '/opt/tools/pmd/bin/pmd',
+        '/usr/bin/pmd',
+        '/usr/local/bin/pmd',
+        'pmd'
+      ];
+      
+      for (const pmdPath of pmdPaths) {
+        try {
+          await execAsync(`${pmdPath} --version`, { timeout: 5000 });
+          pmdExe = pmdPath;
+          this.logger.log(`    ✅ PMD encontrado en: ${pmdExe}`);
+          break;
+        } catch (e) {
+          this.logger.debug(`    ❌ PMD no disponible en: ${pmdPath}`);
+        }
+      }
+      
+      // NOTA: PMD usa -r o --report-file para archivo de salida, NO -o
+      let pmdCmd = `${pmdExe} check -d "${sourcePaths}" -f xml -r "${outputXml}" ${rulesParam}`;
       
       this.logger.log(`    Comando: ${pmdCmd}`);
       
       try {
-        await execAsync(pmdCmd, { 
+        const pmdResult = await execAsync(pmdCmd, { 
           timeout: 120000,
           cwd: projectDir,
           maxBuffer: 10 * 1024 * 1024
         } as any);
         
         this.logger.log(`    ✅ PMD ejecutado correctamente`);
+        if (pmdResult.stdout) this.logger.debug(`    stdout: ${pmdResult.stdout.toString().substring(0, 200)}`);
         pmdExecuted = true;
-      } catch (pmdError) {
-        // PMD puede retornar exit codes diferentes incluso si genera el XML
-        this.logger.log(`    ⚠️  PMD directo falló: ${(pmdError as any).message.substring(0, 100)}`);
+      } catch (pmdError: any) {
+        // PMD retorna exit code 4 cuando encuentra violaciones, pero eso no es un error real
+        const exitCode = pmdError.code || 0;
+        if (exitCode === 4) {
+          this.logger.log(`    ✅ PMD completado con violaciones encontradas (exit code 4 es normal)`);
+          pmdExecuted = true;
+        } else {
+          // Loguear error COMPLETO con stderr y stdout
+        const errorMsg = pmdError.message || 'Unknown error';
+        const stderr = pmdError.stderr ? pmdError.stderr.toString().substring(0, 500) : 'No stderr';
+        const stdout = pmdError.stdout ? pmdError.stdout.toString().substring(0, 500) : 'No stdout';
+        
+        this.logger.error(`    ❌ PMD directo falló`);
+        this.logger.error(`       Error: ${errorMsg}`);
+        this.logger.error(`       Stderr: ${stderr}`);
+        this.logger.error(`       Stdout: ${stdout}`);
         this.logger.log(`    🔄 Intentando vía Maven...`);
         
         // Fallback: intentar vía Maven si está disponible
@@ -675,14 +787,18 @@ export class ToolService {
                   break;
                 }
               }
-            } catch (mavenError) {
-              this.logger.log(`    ⚠️  Maven también falló`);
+            } catch (mavenError: any) {
+              const mvnMsg = mavenError.message || 'Unknown error';
+              const mvnStderr = mavenError.stderr ? mavenError.stderr.toString().substring(0, 300) : 'No stderr';
+              this.logger.error(`    ⚠️  Maven también falló: ${mvnMsg}`);
+              this.logger.error(`       Stderr: ${mvnStderr}`);
             }
           } else {
             this.logger.log(`    ℹ️  No hay pom.xml para fallback Maven`);
           }
         } catch (fallbackError) {
           this.logger.log(`    ℹ️  Fallback a Maven no disponible`);
+        }
         }
       }
 
@@ -854,8 +970,14 @@ export class ToolService {
         
       } catch (execError: any) {
         // Semgrep puede terminar con exit code 1 pero aún generar resultados
-        const errorMsg = (execError as any).message || '';
-        this.logger.log(`ℹ️  Semgrep finalizó con estado: ${errorMsg.substring(0, 100)}`);
+        const errorMsg = execError.message || '';
+        const stderr = execError.stderr ? execError.stderr.toString().substring(0, 500) : 'No stderr';
+        const stdout = execError.stdout ? execError.stdout.toString().substring(0, 500) : 'No stdout';
+        
+        this.logger.error(`❌ Semgrep finalizó con error`);
+        this.logger.error(`   Error: ${errorMsg}`);
+        this.logger.error(`   Stderr: ${stderr}`);
+        this.logger.error(`   Stdout: ${stdout}`);
         
         // Continuar para verificar si se generaron resultados
       }
