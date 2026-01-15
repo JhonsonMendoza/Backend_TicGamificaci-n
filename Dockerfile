@@ -71,25 +71,17 @@ ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk \
 # Copiar herramientas precompiladas del builder (solo SpotBugs)
 COPY --from=builder /opt/tools/spotbugs /opt/tools/spotbugs
 
-# ============ INSTALAR PMD EN RUNTIME (como lo hace SpotBugs vía Maven) ============
-RUN echo "📥 Instalando PMD 7.0.0 en runtime..." && \
-    cd /tmp && \
-    (curl -L --max-time 300 --retry 5 --connect-timeout 30 \
-    -o pmd-dist-7.0.0-bin.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" || \
-    curl -L --max-time 300 --retry 5 --connect-timeout 30 \
-    -o pmd-dist-7.0.0-bin.zip "https://downloads.sourceforge.net/project/pmd/pmd/7.0.0/pmd-dist-7.0.0-bin.zip") && \
-    unzip -q pmd-dist-7.0.0-bin.zip -d /tmp && \
-    mkdir -p /opt/tools && \
-    mv /tmp/pmd-bin-* /opt/tools/pmd && \
-    chmod -R +x /opt/tools/pmd/bin && \
-    /opt/tools/pmd/bin/pmd --version && \
-    echo "✅ PMD instalado en runtime"
+# ============ INSTALAR PMD EN RUNTIME VÍA MAVEN ============
+# PMD será ejecutado vía Maven como herramienta pluggable
+RUN echo "📥 Preparando PMD para Maven..." && \
+    mkdir -p /opt/tools/pmd && \
+    echo "✅ PMD será ejecutado vía Maven plugin"
 
-# ============ INSTALAR SEMGREP EN RUNTIME ============
-RUN echo "📥 Instalando Semgrep vía npm..." && \
-    npm install -g @semgrep/semgrep --force 2>&1 || \
-    pip3 install --no-cache-dir --break-system-packages semgrep 2>&1 || \
-    echo "⚠️ Semgrep install failed, continuando sin Semgrep CLI"
+# ============ INSTALAR SEMGREP EN RUNTIME VÍA PIP3 ============
+RUN echo "📥 Instalando Semgrep vía pip3..." && \
+    pip3 install --no-cache-dir --break-system-packages semgrep 2>&1 && \
+    echo "✅ Semgrep instalado vía pip3" || \
+    echo "⚠️ Semgrep pip3 install no completó, intentará ejecutarse con python -m semgrep"
 
 # Crear symlinks
 RUN mkdir -p /opt/tools/bin && \
@@ -99,10 +91,9 @@ RUN mkdir -p /opt/tools/bin && \
 # Verificación de herramientas
 RUN echo "✅ Verificando herramientas:" && \
     java -version 2>&1 && \
-    /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 && \
     /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 && \
     mvn --version 2>&1 | head -1 && \
-    (semgrep --version 2>&1 || echo "⚠️ Semgrep no disponible")
+    (python3 -m semgrep --version 2>&1 || echo "⚠️ Semgrep no disponible vía python3 -m")
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./

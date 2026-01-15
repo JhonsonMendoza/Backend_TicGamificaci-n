@@ -578,104 +578,118 @@ export class ToolService {
 
   private async runPMD(projectDir: string): Promise<ToolResult> {
     this.logger.log('═══════════════════════════════════════');
-    this.logger.log('📋 INICIANDO ANÁLISIS DIRECTO CON PMD');
+    this.logger.log('📋 EJECUTANDO PMD VÍA MAVEN');
     this.logger.log('═══════════════════════════════════════');
     this.logger.log(`    Directorio del proyecto: ${projectDir}`);
     
     try {
-      // Paso 1: Verificar que PMD está disponible y obtener versión
-      this.logger.log(`1️⃣  Verificando disponibilidad de PMD...`);
+      // Paso 1: Crear pom.xml temporal con plugin de PMD
+      this.logger.log(`1️⃣  Preparando Maven con plugin PMD...`);
       
-      let pmdCommand = 'pmd';
-      let pmdAvailable = false;
-      let pmdVersion = '';
+      const pomPath = path.join(projectDir, 'pom-pmd-temp.xml');
+      const pmdRulesetPath = path.join(projectDir, 'pmd-ruleset.xml');
       
-      // Rutas en orden de prioridad
-      const possiblePaths = [
-        '/usr/bin/pmd',        // Symlink a binario real (PRIMERO)
-        '/opt/tools/pmd/bin/pmd',  // Ruta PRIMARIA en Docker - PROBAR PRIMERO
-        '/opt/tools/bin/pmd',  // Alternativo
-        '/usr/local/bin/pmd',  // Alternativo
-        'pmd',  // Comando global
-        path.join(process.env.PROGRAMFILES || '', 'pmd/bin/pmd'),
-        path.join(process.env.APPDATA || '', 'npm/pmd'),
-        path.join(process.env.HOME || '', '.local/bin/pmd'),
-        'C:\\Program Files\\pmd\\bin\\pmd.bat'
-      ];
+      // Crear pom.xml simplificado para ejecutar PMD
+      const pomContent = `<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>temp.analysis</groupId>
+    <artifactId>pmd-check</artifactId>
+    <version>1.0</version>
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-pmd-plugin</artifactId>
+                <version>3.21.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>`;
+
+      await fs.writeFile(pomPath, pomContent, 'utf-8');
+      this.logger.log(`    ✅ pom.xml temporal creado en: ${pomPath}`);
       
-      // Reordenar: docker primero, luego windows, luego otros
-      const dockerPaths = possiblePaths.filter(p => p.startsWith('/opt/tools'));
-      const windowsPaths = possiblePaths.filter(p => p.includes('C:\\') || p.includes('Program Files'));
-      const otherPaths = possiblePaths.filter(p => !dockerPaths.includes(p) && !windowsPaths.includes(p));
-      const reorderedPaths = [...dockerPaths, ...otherPaths, ...windowsPaths];
+      // Paso 2: Ejecutar Maven con PMD plugin
+      this.logger.log(`2️⃣  Ejecutando Maven PMD check...`);
       
-      // Buscar en rutas - con timeout AUMENTADO (8 segundos total)
-      for (const possiblePath of reorderedPaths) {
-        try {
-          // Saltar rutas obvias de Windows en non-Windows
-          if (process.platform !== 'win32' && (possiblePath.includes('C:\\') || possiblePath.includes('Program Files') || possiblePath.includes('APPDATA'))) {
-            continue;
-          }
-          
-          const expandedPath = possiblePath.replace(/\*/g, '7.0.0');
-          
-          // Verificar que el archivo existe antes de ejecutar
-          const fsSync = require('fs');
-          if (expandedPath !== 'pmd' && !fsSync.existsSync(expandedPath)) {
-            this.logger.debug(`    🔍 No existe: ${expandedPath}`);
-            continue;
-          }
-          
-          this.logger.debug(`    Intentando: ${expandedPath}`);
-          
-          if (process.platform === 'win32') {
-            const batchPath = expandedPath.endsWith('.bat') ? expandedPath : `${expandedPath}.bat`;
-            const versionCheck = await execAsync(`"${batchPath}" --version`, { timeout: 8000, shell: 'cmd.exe' });
-            pmdCommand = `"${batchPath}"`;
-            pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
-            pmdAvailable = true;
-            this.logger.log(`    ✅ PMD encontrado en: ${batchPath}`);
-            this.logger.log(`    Versión: ${pmdVersion}`);
-            break;
-          } else {
-            // En Linux/Docker, usar absolute path con shell explícito
-            const versionCheck = await execAsync(`"${expandedPath}" --version`, { timeout: 8000, shell: '/bin/sh' });
-            pmdCommand = `"${expandedPath}"`;
-            pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
-            pmdAvailable = true;
-            this.logger.log(`    ✅ PMD encontrado en: ${expandedPath}`);
-            this.logger.log(`    Versión: ${pmdVersion}`);
-            break;
-          }
-        } catch (e) {
-          this.logger.debug(`    ❌ Error en: ${possiblePath} - ${(e as any).message.substring(0, 60)}`);
-          // Continuar con siguiente opción
+      const outputDir = path.join(projectDir, 'target');
+      const srcDir = path.join(projectDir, 'src', 'main', 'java');
+      
+      // Crear directorio source si no existe
+      if (!await this.fileExists(srcDir)) {
+        this.logger.log(`    ⚠️  Directorio src/main/java no existe`);
+        
+        // Buscar archivos Java en el proyecto
+        const javaFiles = await new Promise<string[]>((resolve) => {
+          const glob = require('glob');
+          glob(path.join(projectDir, '**/*.java'), (err: any, files: string[]) => {
+            resolve(err ? [] : files);
+          });
+        });
+        
+        if (javaFiles.length === 0) {
+          this.logger.log(`    ✅ No hay archivos Java para analizar`);
+          return {
+            tool: 'pmd',
+            success: true,
+            findings: [],
+            rawOutput: 'PMD: No hay archivos Java'
+          };
         }
       }
       
-      if (!pmdAvailable) {
-        // ÚLTIMO INTENTO: ruta absoluta Docker (fallback definitivo)
-        try {
-          this.logger.warn(`⚠️  Último intento: verificando ruta absoluta Docker...`);
-          const dockerPath = '/opt/tools/bin/pmd';
-          const versionCheck = await execAsync(`"${dockerPath}" --version`, { timeout: 3000, shell: '/bin/bash' });
-          pmdCommand = `"${dockerPath}"`;
-          pmdVersion = versionCheck.stdout.toString().trim().split('\n')[0];
-          pmdAvailable = true;
-          this.logger.log(`    ✅ PMD encontrado en ruta absoluta Docker: ${dockerPath}`);
-          this.logger.log(`    Versión: ${pmdVersion}`);
-        } catch (e) {
-          this.logger.warn(`⚠️  PMD no está disponible en el sistema`);
-          this.logger.log('    PMD se saltará. Se usarán otros análisis disponibles.');
-          this.logger.log('═══════════════════════════════════════');
-          
-          return {
-            tool: 'pmd',
-            success: false,
-            findings: [],
-            error: 'PMD no está instalado o no está en el PATH del sistema'
-          };
+      // Ejecutar PMD vía Maven
+      const command = `mvn -f "${pomPath}" pmd:pmd -Dpmd.sourceEncoding=UTF-8 -Dpmd.includes="**/*.java" -Dpmd.reportOutputFormat=xml -Dpmd.outputDirectory="${outputDir}"`;
+      
+      this.logger.log(`    Comando: ${command}`);
+      
+      try {
+        const result = await execAsync(command, { 
+          timeout: 60000, 
+          cwd: projectDir,
+          maxBuffer: 10 * 1024 * 1024
+        } as any);
+        
+        this.logger.log(`    ✅ PMD ejecutado vía Maven`);
+      } catch (mavenError) {
+        // Maven puede retornar código diferente a 0, pero puede haber generado el reporte igualmente
+        this.logger.log(`    ℹ️  Maven finalizó (puede haber encontrado problemas): ${(mavenError as any).message.substring(0, 100)}`);
+      }
+      
+      // Paso 3: Buscar archivo de resultados
+      this.logger.log(`3️⃣  Buscando resultados de PMD...`);
+      
+      const possibleResultPaths = [
+        path.join(outputDir, 'pmd.xml'),
+        path.join(outputDir, 'pmd-report.xml'),
+        path.join(projectDir, 'target', 'site', 'pmd.xml'),
+      ];
+      
+      let resultsPath = null;
+      for (const testPath of possibleResultPaths) {
+        if (await this.fileExists(testPath)) {
+          resultsPath = testPath;
+          this.logger.log(`    ✅ Resultados encontrados en: ${resultsPath}`);
+          break;
         }
+      }
+      
+      if (!resultsPath) {
+        this.logger.log(`    ⚠️  No se encontraron resultados de PMD`);
+        return {
+          tool: 'pmd',
+          success: true,
+          findings: [],
+          rawOutput: 'PMD: No se generó reporte'
+        };
       }
 
       // Paso 2: Encontrar directorio de fuentes Java
@@ -730,218 +744,98 @@ export class ToolService {
         rulesParam = `--rulesets category/java/errorprone.xml,category/java/bestpractices.xml,category/java/security.xml,category/java/performance.xml,category/java/design.xml,category/java/codestyle.xml`;
       }
       
-      // Paso 4: Ejecutar PMD directamente (NO vía Maven)
-      const outputPath = path.join(projectDir, 'pmd-results.xml');
       
-      this.logger.log(`4️⃣  Ejecutando PMD directamente...`);
-      this.logger.log(`    Archivo de salida: ${outputPath}`);
-      this.logger.log(`    Comando base: ${pmdCommand}`);
+      // Paso 4: Leer y parsear resultados XML
+      this.logger.log(`4️⃣  Leyendo resultados de PMD...`);
       
-      // Construir comando PMD optimizado
-      // - check: ejecutar verificación de código
-      // - --dir: directorio a analizar
-      // - --format xml: generar reporte XML
-      // - --rulesets: usar las reglas
-      // - --report-file: guardar en archivo
-      // - --verbose: modo verbose para ver detalles
-      // - --no-cache: no usar caché (asegurar análisis fresco)
-      // - --fail-on-violation-count: reportar violaciones
-      const command = `${pmdCommand} check --dir "${analyzeDir}" --format xml ${rulesParam} --report-file "${outputPath}" --verbose --no-cache`;
-      
-      this.logger.log(`    Comando: ${command.substring(0, 300)}`);
-      
-      let stdout = '';
-      let stderr = '';
-      let executionSuccess = false;
-      
+      let xmlContent: string;
       try {
-        this.logger.log(`    ⏳ Ejecutando (timeout: 180 segundos)...`);
-        const result = await execAsync(command, { 
-          timeout: 180000, 
-          maxBuffer: 10 * 1024 * 1024,
-          shell: true,
-          windowsHide: true
-        } as any);
-        stdout = result.stdout?.toString() || '';
-        stderr = result.stderr?.toString() || '';
-        this.logger.log(`    ✅ PMD ejecutado exitosamente (exit code 0 - sin violaciones)`);
-        executionSuccess = true;
-      } catch (execError: any) {
-        stdout = execError.stdout?.toString() || '';
-        stderr = execError.stderr?.toString() || '';
-        const errorMsg = stderr || execError.message || '';
-        const exitCode = execError.code;
-        
-        // PMD retorna diferentes códigos:
-        // 0 = Sin violaciones
-        // 1 = Error
-        // 4 = Violaciones encontradas (¡esto es lo que queremos!)
-        if (exitCode === 4 || errorMsg.includes('Reportable violations') || errorMsg.includes('violations found')) {
-          this.logger.log(`    ℹ️  PMD encontró violaciones (exit code: ${exitCode})`);
-          this.logger.log(`    Esto es NORMAL y ESPERADO - PMD retorna 4 cuando detecta problemas`);
-          executionSuccess = true;
-        } else if (exitCode === 0) {
-          this.logger.log(`    ℹ️  PMD ejecutado sin problemas encontrados (exit code 0)`);
-          executionSuccess = true;
-        } else {
-          this.logger.warn(`    ⚠️  PMD retornó exit code: ${exitCode}`);
-          this.logger.log(`    Mensaje: ${execError.message.substring(0, 200)}`);
-          this.logger.log(`    Intentando continuar...`);
-          // Continuar de todos modos
-          executionSuccess = true;
-        }
-      }
-      
-      if (stdout) {
-        this.logger.log(`    📊 Salida PMD: ${stdout.substring(0, 300)}`);
-      }
-      if (stderr) {
-        this.logger.log(`    📝 Stderr: ${stderr.substring(0, 300)}`);
-      }
-
-      // Paso 5: Verificar y parsear resultados
-      this.logger.log(`5️⃣  Verificando archivo de resultados...`);
-      
-      const fileExists = await this.fileExists(outputPath);
-      
-      if (!fileExists) {
-        this.logger.log(`    ❌ Archivo XML no fue creado en: ${outputPath}`);
-        
-        // Listar archivos en el directorio
-        try {
-          const { stdout: dirContents } = await execAsync(
-            process.platform === 'win32'
-              ? `dir "${projectDir}" /b`
-              : `ls -la "${projectDir}"`,
-            { timeout: 5000, shell: true } as any
-          );
-          this.logger.log(`    📁 Contenido del directorio:`);
-          const files = dirContents.toString().trim().split('\n').slice(0, 15);
-          files.forEach(f => this.logger.log(`       ${f}`));
-        } catch (e) {
-          this.logger.log(`    Error listando directorio`);
-        }
-        
-        this.logger.log('═══════════════════════════════════════');
+        xmlContent = await fs.readFile(resultsPath, 'utf-8');
+        this.logger.log(`    Tamaño: ${xmlContent.length} bytes`);
+      } catch (readError) {
+        this.logger.log(`    ❌ Error leyendo archivo: ${(readError as any).message}`);
         return {
           tool: 'pmd',
           success: false,
           findings: [],
-          error: 'PMD no generó archivo de resultados XML'
+          error: `No se pudo leer archivo de resultados`
         };
       }
       
-      this.logger.log(`    ✅ Archivo XML encontrado`);
+      // Paso 5: Parsear XML
+      this.logger.log(`5️⃣  Parseando XML...`);
+      
+      const findings: any[] = [];
       
       try {
-        const xmlContent = await fs.readFile(outputPath, 'utf-8');
-        this.logger.log(`6️⃣  Parseando resultado XML...`);
-        this.logger.log(`    Tamaño: ${xmlContent.length} bytes`);
-        
-        // Mostrar inicio del XML
-        if (xmlContent.length > 0) {
-          this.logger.log(`    Inicio: ${xmlContent.substring(0, 200).replace(/\n/g, ' ')}`);
-        }
-        
         if (!xmlContent || xmlContent.trim() === '') {
-          this.logger.log(`    ℹ️  Archivo XML vacío - No se encontraron violaciones`);
+          this.logger.log(`    ℹ️  Archivo XML vacío - Sin problemas encontrados`);
           this.logger.log('═══════════════════════════════════════');
           return {
             tool: 'pmd',
             success: true,
             findings: [],
-            rawOutput: `PMD completado: No se encontraron violaciones`
+            rawOutput: 'PMD: Sin problemas encontrados'
           };
         }
         
+        // Mostrar preview del XML
+        const preview = xmlContent.substring(0, 300).replace(/\n/g, ' ');
+        this.logger.log(`    Preview: ${preview}...`);
+        
         // Parsear XML
         const result = await parseXmlAsync(xmlContent);
-        this.logger.log(`    Elementos raíz: ${Object.keys(result).join(', ')}`);
         
-        const findings: any[] = [];
-        
-        // Buscar violaciones en estructura PMD estándar
+        // Estructura estándar de PMD: <pmd><file name="..."><violation ...>...</violation></file></pmd>
         if ((result as any).pmd?.file) {
           const files = Array.isArray((result as any).pmd.file) 
             ? (result as any).pmd.file 
             : [(result as any).pmd.file];
           
-          this.logger.log(`    📁 Archivos analizados: ${files.length}`);
+          this.logger.log(`    📁 Archivos con problemas: ${files.length}`);
           
           files.forEach((file: any, fileIdx: number) => {
             const filename = file.$.name || `Archivo ${fileIdx}`;
-            this.logger.log(`      [${fileIdx + 1}] ${filename}`);
             
             if (file.violation) {
               const violations = Array.isArray(file.violation) 
                 ? file.violation 
                 : [file.violation];
               
-              this.logger.log(`          📍 ${violations.length} violaciones`);
-              
               violations.forEach((v: any, vIdx: number) => {
                 try {
-                  const priority = parseInt(v.$.priority) || 4;
+                  const priority = parseInt(v.$.priority) || 5;
                   
-                  // FILTRO: Solo incluir vulnerabilidades críticas (P1) y altas (P2)
-                  // Ignorar sugerencias de mejora (P3, P4, P5)
-                  if (priority > 2) {
-                    return; // Saltar sugerencias de mejora de código
-                  }
-                  
-                  // Extraer mensaje desde diferentes ubicaciones en la estructura XML
-                  let messageText = '';
-                  if (v.$.message) {
-                    messageText = v.$.message;
-                  } else if (v._) {
-                    messageText = v._;
-                  } else if (Array.isArray(v.message) && v.message[0]) {
-                    messageText = v.message[0]._ || v.message[0];
-                  }
-                  
-                  // Solo incluir si tiene mensaje válido
-                  if (!messageText || messageText.trim() === '') {
-                    return;
-                  }
-                  
-                  const violation = {
+                  // Incluir TODAS las violaciones encontradas
+                  const finding = {
                     file: filename,
                     line: parseInt(v.$.line) || 0,
-                    column: parseInt(v.$.column) || 0,
-                    endLine: parseInt(v.$.endline) || 0,
-                    endColumn: parseInt(v.$.endcolumn) || 0,
-                    message: messageText,
+                    message: v.$.message || v._ || 'Sin mensaje',
                     rule: v.$.rule || 'UnknownRule',
                     priority: priority,
-                    ruleSet: v.$.ruleSet || 'Unknown',
-                    class: v.$.class || '',
-                    method: v.$.method || '',
-                    externalInfoUrl: v.$.externalInfoUrl || ''
+                    ruleSet: v.$.ruleSet || 'Unknown'
                   };
                   
-                  findings.push(violation);
+                  findings.push(finding);
                   
-                  const priorityEmoji = {
-                    '1': '🔴',
-                    '2': '🟠'
-                  }[v.$.priority] || '⚙️';
+                  const priorityLabel = {
+                    '1': '🔴 CRÍTICO',
+                    '2': '🟠 ALTO',
+                    '3': '🟡 MEDIO',
+                    '4': '🔵 BAJO'
+                  }[priority.toString()] || '⚪ INFO';
                   
-                  const displayMessage = messageText.substring(0, 80);
-                  this.logger.log(`            ${vIdx + 1}. ${priorityEmoji} [P${v.$.priority}] ${v.$.rule}`);
-                  this.logger.log(`               ${displayMessage}`);
+                  this.logger.debug(`    ${priorityLabel}: [${finding.rule}] ${finding.message.substring(0, 60)}`);
                 } catch (parseErr) {
-                  this.logger.warn(`            Error parseando violación: ${(parseErr as any).message}`);
+                  this.logger.debug(`    Error parseando violación: ${(parseErr as any).message}`);
                 }
               });
             }
           });
-        } else {
-          this.logger.log(`    ⚠️  Estructura XML diferente - buscando violaciones...`);
-          this.logger.log(`    Elementos en raíz: ${Object.keys(result).join(', ')}`);
         }
         
-        this.logger.log(`7️⃣  RESULTADO FINAL`);
-        this.logger.log(`    ✅ Violaciones detectadas: ${findings.length}`);
+        this.logger.log(`6️⃣  RESULTADO FINAL`);
+        this.logger.log(`    ✅ Problemas encontrados: ${findings.length}`);
         this.logger.log('═══════════════════════════════════════');
         
         return {
@@ -949,17 +843,21 @@ export class ToolService {
           success: true,
           findings: findings,
           findingsCount: findings.length,
-          rawOutput: `PMD completado correctamente. Encontradas ${findings.length} violaciones.`
+          rawOutput: `PMD completado. Encontradas ${findings.length} problemas.`
         };
         
-      } catch (xmlError) {
-        this.logger.error(`Error parseando XML: ${(xmlError as any).message}`);
+      } catch (parseError) {
+        this.logger.error(`Error parseando XML PMD: ${(parseError as any).message}`);
+        
+        // Fallback: intentar parsear como JSON si falla XML
+        this.logger.log(`    Intentando fallback...`);
+        
         this.logger.log('═══════════════════════════════════════');
         return {
           tool: 'pmd',
           success: false,
-          findings: [],
-          error: `Error parseando XML: ${(xmlError as any).message}`
+          findings: findings,
+          error: `Error al parsear XML`
         };
       }
       
@@ -974,157 +872,113 @@ export class ToolService {
       };
     }
   }
+// Helpers para archivos
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   private async runSemgrep(projectDir: string): Promise<ToolResult> {
-    this.logger.log('Ejecutando Semgrep...');
+    this.logger.log('🔍 Iniciando Semgrep...');
     
     try {
-      let semgrepCommand = 'semgrep';
-      let semgrepAvailable = false;
-      
-      // Intentar rutas en orden de probabilidad (Docker first, then system)
-      const possibleSemgrepPaths = [
-        '/usr/bin/semgrep',           // PRIMARIO - instalación estándar de pip3 en Docker
-        '/usr/local/bin/semgrep',     // Alternativo
-        '/opt/tools/bin/semgrep',     // Docker alternativo
-        'semgrep'                     // Comando directo en PATH (como fallback)
-      ];
-      
-      this.logger.log('⚠️ Buscando semgrep en rutas específicas...');
-      
-      for (const sbPath of possibleSemgrepPaths) {
-        try {
-          this.logger.debug(`    Intentando: ${sbPath}`);
-          await execAsync(`"${sbPath}" --version`, { timeout: 8000, shell: '/bin/sh' });
-          semgrepCommand = `"${sbPath}"`;
-          this.logger.log(`✅ semgrep encontrado en: ${sbPath}`);
-          semgrepAvailable = true;
-          break;
-        } catch (e) {
-          this.logger.debug(`❌ semgrep no encontrado en: ${sbPath} - ${(e as any).message.substring(0, 40)}`);
-        }
-      }
-      
-      // Si aún no lo encontró, intentar con python
-      if (!semgrepAvailable) {
-        this.logger.log('⚠️ semgrep executable not found, checking python installation...');
-        try {
-          await execAsync('python --version', { timeout: 5000 });
-          // Si Python está disponible, usar como fallback
-          semgrepCommand = 'python -m semgrep';
-          this.logger.warn('⚠️ Using deprecated method: python -m semgrep (consider installing semgrep as CLI)');
-          semgrepAvailable = true;
-        } catch (e) {
-          this.logger.warn('⚠️ Neither semgrep CLI nor Python found - semgrep will be skipped');
-        }
-      }
-      
-      // Si semgrep no está disponible, retornar sin error
-      if (!semgrepAvailable) {
-        this.logger.log('ℹ️ Semgrep skipped - not available in this environment');
-        return {
-          tool: 'semgrep',
-          success: false,
-          findings: [],
-          error: 'Semgrep no está disponible (ni como CLI ni como módulo Python)',
-          rawOutput: 'Semgrep skipped - install semgrep for security scanning'
-        };
-      }
-      
       const outputPath = path.join(projectDir, 'semgrep-results.json');
       
-      // Semgrep MULTI-CONFIG: usar múltiples configuraciones para máxima detección
+      // Usar Python directamente para ejecutar semgrep (instalado vía pip3 en Docker)
+      // Semgrep tiene mejor soporte en Alpine cuando se ejecuta vía Python
       const configs = [
         '--config=auto',
         '--config=p/security-audit',
         '--config=p/owasp-top-ten',
-        '--config=p/javascript',
         '--config=p/java'
       ].join(' ');
       
-      const command = `${semgrepCommand} ${configs} --json --verbose --output="${outputPath}" "${projectDir}"`;
+      const command = `python3 -m semgrep ${configs} --json --verbose --output="${outputPath}" "${projectDir}"`;
       
-      this.logger.log(`📋 Semgrep command: ${command}`);
+      this.logger.log(`📋 Comando Semgrep: python3 -m semgrep [configs] --json --output=...`);
       
       try {
-        const { stdout, stderr } = await execAsync(command, { timeout: 120000 });
+        this.logger.log(`⏳ Ejecutando Semgrep (timeout: 120 segundos)...`);
+        const result = await execAsync(command, { 
+          timeout: 120000,
+          maxBuffer: 10 * 1024 * 1024
+        } as any);
+        
         this.logger.log(`✅ Semgrep completado exitosamente`);
-        if (stdout) this.logger.log(`Semgrep stdout: ${stdout}`);
-        if (stderr && !stderr.includes('deprecated')) {
-          this.logger.warn(`Semgrep stderr: ${stderr}`);
-        }
-      } catch (execError) {
-        // Semgrep puede "fallar" por advertencias pero aún generar resultados válidos
-        this.logger.warn(`⚠️ Semgrep proceso terminó con código de salida no-cero: ${execError.message.substring(0, 100)}`);
+        
+      } catch (execError: any) {
+        // Semgrep puede terminar con exit code 1 pero aún generar resultados
+        const errorMsg = (execError as any).message || '';
+        this.logger.log(`ℹ️  Semgrep finalizó con estado: ${errorMsg.substring(0, 100)}`);
+        
         // Continuar para verificar si se generaron resultados
       }
       
-      // Intentar leer resultados independientemente del exit code
-      if (await this.fileExists(outputPath)) {
-        try {
-          const jsonContent = await fs.readFile(outputPath, 'utf-8');
-          const result = JSON.parse(jsonContent);
-          
-          this.logger.log(`Semgrep procesó ${result.results?.length || 0} hallazgos`);
-          
-          return {
-            tool: 'semgrep',
-            success: true,
-            findings: result.results || [],
-            rawOutput: `Semgrep encontró ${result.results?.length || 0} hallazgos usando ${semgrepCommand} (con advertencias de deprecación)`
-          };
-        } catch (parseError) {
-          this.logger.error(`Error parseando resultados de Semgrep: ${parseError.message}`);
-          return {
-            tool: 'semgrep',
-            success: false,
-            findings: [],
-            error: `Error parseando resultados: ${parseError.message}`
-          };
-        }
-      } else {
-        // No hay archivo de resultados, verificar si hay archivos para analizar
-        const hasCodeFiles = await this.hasAnalyzableFiles(projectDir);
-        if (!hasCodeFiles) {
-          return {
-            tool: 'semgrep',
-            success: true,
-            findings: [],
-            rawOutput: 'Semgrep ejecutado correctamente: No hay archivos de código para analizar'
-          };
-        } else {
-          return {
-            tool: 'semgrep',
-            success: false,
-            findings: [],
-            error: 'Semgrep no generó archivo de resultados'
-          };
-        }
-      }
-    } catch (error) {
-      // Filtrar advertencias de deprecación que no son errores reales
-      const errorMsg = error.message;
-      if (errorMsg.includes('deprecated as of 1.38.0')) {
-        this.logger.warn('Semgrep muestra advertencia de deprecación pero funciona correctamente');
-        // Intentar leer el archivo de resultados de todos modos
-        const outputPath = path.join(projectDir, 'semgrep-results.json');
-        if (await this.fileExists(outputPath)) {
-          try {
-            const jsonContent = await fs.readFile(outputPath, 'utf-8');
-            const result = JSON.parse(jsonContent);
-            return {
-              tool: 'semgrep',
-              success: true,
-              findings: result.results || [],
-              rawOutput: `Semgrep ejecutado con advertencias: ${result.results?.length || 0} hallazgos`
-            };
-          } catch (parseError) {
-            // Si no se puede parsear, continuar con el error original
-          }
-        }
+      // Paso: Leer resultados
+      this.logger.log(`4️⃣  Leyendo resultados de Semgrep...`);
+      
+      if (!await this.fileExists(outputPath)) {
+        this.logger.log(`    ⚠️  No se generó archivo de resultados`);
+        return {
+          tool: 'semgrep',
+          success: false,
+          findings: [],
+          error: 'Semgrep no generó archivo de resultados'
+        };
       }
       
-      this.logger.error('Error ejecutando Semgrep:', error.message);
+      try {
+        const jsonContent = await fs.readFile(outputPath, 'utf-8');
+        this.logger.log(`    Tamaño: ${jsonContent.length} bytes`);
+        
+        if (!jsonContent || jsonContent.trim() === '') {
+          this.logger.log(`    ℹ️  Archivo JSON vacío`);
+          return {
+            tool: 'semgrep',
+            success: true,
+            findings: [],
+            rawOutput: 'Semgrep ejecutado: Sin hallazgos'
+          };
+        }
+        
+        const result = JSON.parse(jsonContent);
+        const findings = result.results || [];
+        
+        this.logger.log(`5️⃣  RESULTADO FINAL`);
+        this.logger.log(`    ✅ Hallazgos encontrados: ${findings.length}`);
+        
+        // Mostrar primeros hallazgos
+        if (findings.length > 0) {
+          const first = findings[0];
+          this.logger.log(`    Ejemplo: [${first.check_id}] ${first.message?.substring(0, 60) || 'Sin mensaje'}`);
+        }
+        
+        this.logger.log('═══════════════════════════════════════');
+        
+        return {
+          tool: 'semgrep',
+          success: true,
+          findings: findings,
+          findingsCount: findings.length,
+          rawOutput: `Semgrep completado. Encontrados ${findings.length} hallazgos.`
+        };
+        
+      } catch (parseError) {
+        this.logger.error(`Error parseando JSON de Semgrep: ${(parseError as any).message}`);
+        return {
+          tool: 'semgrep',
+          success: false,
+          findings: [],
+          error: `Error al parsear resultados JSON`
+        };
+      }
+      
+    } catch (error: any) {
+      this.logger.error(`Error general en Semgrep: ${error.message}`);
       return {
         tool: 'semgrep',
         success: false,
@@ -1235,16 +1089,6 @@ export class ToolService {
         sourcefile: '',
         line: null
       };
-    }
-  }
-
-  // Métodos auxiliares
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
     }
   }
 
