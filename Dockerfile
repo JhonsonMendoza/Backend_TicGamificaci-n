@@ -1,5 +1,5 @@
 # Etapa 1: Builder - Compilar la aplicación
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -71,7 +71,7 @@ RUN echo "📥 Descargando SpotBugs 4.8.3..." && \
     echo "✅ SpotBugs instalado en /opt/tools/spotbugs"
 
 # ============ ETAPA 2: RUNTIME ============
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -82,96 +82,37 @@ RUN apk add --no-cache \
     git \
     curl \
     bash \
-    ca-certificates
-
-# Crear directorio de herramientas
-RUN mkdir -p /opt/tools/bin
-
-# ============ INSTALAR LIBRERÍAS DEL SISTEMA PARA JAVA ============
-# CRÍTICO: Java necesita estas librerías dinámicas, especialmente glibc
-RUN apk add --no-cache \
+    ca-certificates \
     glibc \
     glibc-bin \
     glibc-i18n \
-    tzdata
+    tzdata \
+    openjdk11 \
+    maven
 
-# ============ COPIAR JAVA COMPILADO DEL BUILDER ============
-# Copiar Java completo del builder (no reinstalar, use el compilado)
-COPY --from=builder /usr/lib/jvm/java-11-openjdk /usr/lib/jvm/java-11-openjdk
-COPY --from=builder /usr/bin/java* /usr/bin/
-COPY --from=builder /usr/bin/jps /usr/bin/
-COPY --from=builder /usr/lib/ld-musl-x86_64.so.1 /lib/ld-musl-x86_64.so.1 2>/dev/null || true
-COPY --from=builder /lib/ld-musl-x86_64.so.1 /lib/ 2>/dev/null || true
-
-# Configurar JAVA_HOME
-ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk
-
-# ============ COPIAR HERRAMIENTAS PRECOMPILADAS DEL BUILDER ============
-# Copiar PMD desde builder (ya compilado y verificado)
-COPY --from=builder /opt/tools/pmd /opt/tools/pmd
-
-# Copiar SpotBugs desde builder  
-COPY --from=builder /opt/tools/spotbugs /opt/tools/spotbugs
-
-# ============ VERIFICACIÓN INMEDIATA POST-COPY ============
-RUN echo "🔍 VERIFICACIÓN POST-COPY DE HERRAMIENTAS" && \
-    echo "" && \
-    echo "📁 Listando /opt/tools:" && \
-    ls -la /opt/tools/ && \
-    echo "" && \
-    echo "📁 Contenido de PMD:" && \
-    ls -la /opt/tools/pmd/bin/ 2>/dev/null | head -10 && \
-    echo "" && \
-    echo "📁 Contenido de SpotBugs:" && \
-    ls -la /opt/tools/spotbugs/bin/ 2>/dev/null | head -10 && \
-    echo "" && \
-    echo "🧪 TEST 1: PMD - Intentando ejecutar --version" && \
-    /opt/tools/pmd/bin/pmd --version 2>&1 || echo "❌ FALLÓ PMD" && \
-    echo "" && \
-    echo "🧪 TEST 2: SpotBugs - Intentando ejecutar -version" && \
-    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 || echo "❌ FALLÓ SpotBugs" && \
-    echo "" && \
-    echo "✅ POST-COPY VERIFICATION COMPLETED"
-
-# ============ INSTALAR SEMGREP EN RUNTIME ============
-RUN echo "📦 Instalando Semgrep via pip3..." && \
-    pip3 install --no-cache-dir --break-system-packages semgrep && \
-    which semgrep && \
-    semgrep --version && \
-    echo "✅ Semgrep listo"
-
-# ============ INSTALAR MAVEN EN RUNTIME ============
-RUN apk add --no-cache maven && \
-    mvn --version && \
-    echo "✅ Maven listo"
-
-# ============ CONFIGURAR PATH PRIMERO - ANTES DE SYMLINKS ============
-# Poner rutas absolutas PRIMERO en PATH para mayor prioridad
+# Configurar JAVA_HOME y PATH
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk \
     PATH="/opt/tools/pmd/bin:/opt/tools/spotbugs/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 
-# ============ CREAR SYMLINKS COMO BACKUP ============
-RUN echo "Creando symlinks..." && \
-    mkdir -p /opt/tools/bin && \
-    ln -sf /opt/tools/pmd/bin/pmd /usr/bin/pmd 2>&1 || true && \
-    ln -sf /opt/tools/spotbugs/bin/spotbugs /usr/local/bin/spotbugs 2>&1 || true && \
-    ln -sf /opt/tools/spotbugs/bin/spotbugs /opt/tools/bin/spotbugs 2>&1 || true && \
-    echo "✅ Symlinks creados"
+# Copiar herramientas precompiladas del builder
+COPY --from=builder /opt/tools/pmd /opt/tools/pmd
+COPY --from=builder /opt/tools/spotbugs /opt/tools/spotbugs
 
-# ============ VERIFICAR JAVA Y HERRAMIENTAS ============
-RUN echo "🔍 Verificando Java en runtime:" && \
-    java -version 2>&1 && \
-    echo "" && \
-    echo "🔍 Verificando PMD:" && \
-    /opt/tools/pmd/bin/pmd --version 2>&1 | head -3 && \
-    echo "" && \
-    echo "🔍 Verificando SpotBugs:" && \
-    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -3 && \
-    echo "" && \
-    echo "🔍 Verificando Semgrep:" && \
-    /usr/bin/semgrep --version 2>&1 | head -1 && \
-    echo "" && \
-    echo "✅ Todas las herramientas funcionan correctamente"
+# Instalar Semgrep
+RUN pip3 install --no-cache-dir --break-system-packages semgrep
+
+# Crear symlinks
+RUN mkdir -p /opt/tools/bin && \
+    ln -sf /opt/tools/pmd/bin/pmd /usr/bin/pmd || true && \
+    ln -sf /opt/tools/spotbugs/bin/spotbugs /usr/local/bin/spotbugs || true
+
+# Verificación de herramientas
+RUN echo "✅ Verificando herramientas:" && \
+    java -version && \
+    /opt/tools/pmd/bin/pmd --version | head -1 && \
+    /opt/tools/spotbugs/bin/spotbugs -version | head -1 && \
+    semgrep --version | head -1 && \
+    mvn --version | head -1
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
@@ -196,5 +137,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
 
-# Iniciar aplicación con verificación de herramientas
-CMD ["sh", "-c", "echo ''; echo '============================================'; echo '🔍 VERIFICACIÓN DE HERRAMIENTAS EN RUNTIME'; echo '============================================'; echo ''; echo '📋 PMD:'; /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 || echo '❌ PMD no disponible'; echo ''; echo '🐛 SpotBugs:'; /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 || echo '❌ SpotBugs no disponible'; echo ''; echo '🔍 Semgrep:'; semgrep --version 2>&1 | head -1 || echo '❌ Semgrep no disponible'; echo ''; echo '📦 Maven:'; mvn --version 2>&1 | head -1 || echo '❌ Maven no disponible'; echo ''; echo '============================================'; echo 'Iniciando servidor...'; echo ''; exec node dist/main.js"]
+# Iniciar aplicación
+CMD ["node", "dist/main.js"]
