@@ -69,8 +69,10 @@ export class MissionsController {
   @Get('analysis/:analysisId')
   @UseGuards(AuthGuard('jwt'))
   async getByAnalysis(@Param('analysisId', ParseIntPipe) analysisId: number, @Request() req) {
+    console.log(`📋 [GET /missions/analysis/${analysisId}] Solicitando misiones...`);
     try {
       if (!req || !req.user) {
+        console.log(`   ❌ Usuario no autenticado`);
         throw new UnauthorizedException('Usuario no autenticado');
       }
 
@@ -80,6 +82,9 @@ export class MissionsController {
       const userEmail = req.user.email;
       const userName = req.user.name;
 
+      console.log(`   Usuario: id=${userId}, email=${userEmail}`);
+      console.log(`   Análisis: userId=${analysis.userId}, student=${analysis.student}`);
+
       // Permitir acceso si:
       // 1. El análisis tiene userId y coincide
       // 2. El análisis tiene student (nombre/email) y coincide
@@ -88,11 +93,13 @@ export class MissionsController {
         (analysis.student && (analysis.student === userEmail || analysis.student === userName));
 
       if (!isOwner) {
-        console.log(`[FORBIDDEN] Usuario ${userId} intenta acceder a análisis ${analysisId}. Student en BD: ${analysis.student}, UserId en BD: ${analysis.userId}`);
+        console.log(`   ❌ [FORBIDDEN] Usuario ${userId} no es propietario del análisis ${analysisId}`);
         throw new ForbiddenException('No autorizado para ver las misiones de este análisis');
       }
 
+      console.log(`   ✅ Usuario autorizado, buscando misiones...`);
       const missions = await this.missionsService.findByAnalysisId(analysisId);
+      console.log(`   📊 Retornando ${missions.length} misiones`);
       return { success: true, data: missions };
     } catch (error) {
       if (error instanceof HttpException) throw error;
