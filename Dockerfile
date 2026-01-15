@@ -45,14 +45,14 @@ RUN echo "📥 Descargando SpotBugs 4.8.3..." && \
 # ============ INSTALAR PMD EN BUILDER ============
 RUN echo "📥 Descargando PMD 7.0.0..." && \
     cd /tmp && \
-    (curl -L --retry 5 --connect-timeout 30 --max-time 300 \
-    -o pmd-7.0.0-bin.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1 || \
     curl -L --retry 5 --connect-timeout 30 --max-time 300 \
-    -o pmd-7.0.0-bin.zip "https://github.com/pmd/pmd/releases/download/pmd_releases/7.0.0/pmd-dist-7.0.0-bin.zip" 2>&1) && \
+    -o pmd-7.0.0-bin.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.0.0/pmd-dist-7.0.0-bin.zip" && \
     echo "✓ PMD descargado, extrayendo..." && \
     unzip -q pmd-7.0.0-bin.zip -d /tmp && \
-    mv /tmp/pmd-bin-*/ /opt/tools/pmd && \
+    ls -la /tmp/ && \
+    (mv /tmp/pmd-bin-*/ /opt/tools/pmd 2>/dev/null || mv /tmp/pmd-*/ /opt/tools/pmd) && \
     chmod -R +x /opt/tools/pmd/bin && \
+    ls -la /opt/tools/pmd/bin/ && \
     /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 && \
     echo "✅ PMD instalado en /opt/tools/pmd"
 

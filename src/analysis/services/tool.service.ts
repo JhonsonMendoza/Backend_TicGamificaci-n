@@ -946,8 +946,7 @@ export class ToolService {
     try {
       const outputPath = path.join(projectDir, 'semgrep-results.json');
       
-      // Usar Python directamente para ejecutar semgrep (instalado vía pip3 en Docker)
-      // Semgrep tiene mejor soporte en Alpine cuando se ejecuta vía Python
+      // Usar semgrep directamente (no python3 -m semgrep que está deprecado)
       const configs = [
         '--config=auto',
         '--config=p/security-audit',
@@ -955,9 +954,10 @@ export class ToolService {
         '--config=p/java'
       ].join(' ');
       
-      const command = `python3 -m semgrep ${configs} --json --verbose --output="${outputPath}" "${projectDir}"`;
+      // Usar comando semgrep directamente (deprecado python3 -m semgrep desde 1.38.0)
+      const command = `semgrep ${configs} --json --output="${outputPath}" "${projectDir}"`;
       
-      this.logger.log(`📋 Comando Semgrep: python3 -m semgrep [configs] --json --output=...`);
+      this.logger.log(`📋 Comando Semgrep: semgrep [configs] --json --output=...`);
       
       try {
         this.logger.log(`⏳ Ejecutando Semgrep (timeout: 120 segundos)...`);

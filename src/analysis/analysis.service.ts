@@ -309,20 +309,29 @@ export class AnalysisService {
 
       for (const result of toolResults) {
         if (result.findings && result.findings.length > 0) {
-          allFindings.push(...result.findings);
+          // Normalizar findings añadiendo severity basada en priority/severity existente
+          const normalizedFindings = result.findings.map((f: any) => {
+            const severity = this.determineSeverityFromFinding(result.tool, f);
+            return { ...f, severity, tool: result.tool };
+          });
+          allFindings.push(...normalizedFindings);
           toolFindings[result.tool] = result.findings.length;
           this.logger.log(`  ✓ ${result.tool}: ${result.findings.length} hallazgos`);
         }
       }
 
-      // 8. Calcular métricas
-      const highSeverity = allFindings.filter(f => f.severity === 'high' || f.severity === 3 || f.severity === 2).length;
-      const mediumSeverity = allFindings.filter(f => f.severity === 'medium' || f.severity === 6 || f.severity === 3).length;
-      const lowSeverity = allFindings.filter(f => f.severity === 'low' || f.severity === 1 || f.severity === 4).length;
+      // 8. Calcular métricas basadas en severity normalizada
+      const highSeverity = allFindings.filter(f => f.severity === 'high').length;
+      const mediumSeverity = allFindings.filter(f => f.severity === 'medium').length;
+      const lowSeverity = allFindings.filter(f => f.severity === 'low').length;
+
+      this.logger.log(`📊 Severidades calculadas: HIGH=${highSeverity}, MEDIUM=${mediumSeverity}, LOW=${lowSeverity}`);
 
       const qualityScore = this.calculateQualityScore(allFindings.length);
 
-      // 9. Actualizar análisis con resultados
+      // 9. Actualizar análisis con resultados (usar processToolResults para estructura correcta)
+      const processedFindings = this.processToolResults(toolResults);
+      
       analysisRun.status = 'completed';
       analysisRun.totalIssues = allFindings.length;
       analysisRun.highSeverityIssues = highSeverity;
@@ -330,7 +339,7 @@ export class AnalysisService {
       analysisRun.lowSeverityIssues = lowSeverity;
       analysisRun.qualityScore = qualityScore;
       analysisRun.toolResults = toolFindings;
-      analysisRun.findings = JSON.stringify(allFindings);
+      analysisRun.findings = processedFindings; // Usar estructura correcta, no JSON.stringify
       analysisRun.completedAt = new Date();
       
       await this.analysisRunRepository.save(analysisRun);
@@ -654,15 +663,44 @@ export class AnalysisService {
       });
     }
 
-    this.logger.log(`📋 Total misiones a crear: ${missionsToCreate.length}`);
+    this.logger.log(`📋 Total misiones sin filtrar: ${missionsToCreate.length}`);
 
-    // Dejar un tope razonable (por ejemplo 200 misiones)
-    const limited = missionsToCreate.slice(0, 200);
+    // FILTRAR: Priorizar HIGH y MEDIUM, limitar LOW
+    // Ordenar por severidad: high primero, luego medium, luego low
+    const sortedMissions = missionsToCreate.sort((a, b) => {
+      const order = { high: 0, medium: 1, low: 2 };
+      return (order[a.severity] || 2) - (order[b.severity] || 2);
+    });
 
-    this.logger.log(`🚀 Creando ${limited.length} misiones en la base de datos`);
+    // Separar por severidad
+    const highMissions = sortedMissions.filter(m => m.severity === 'high');
+    const mediumMissions = sortedMissions.filter(m => m.severity === 'medium');
+    const lowMissions = sortedMissions.filter(m => m.severity === 'low');
+
+    this.logger.log(`📊 Distribución: HIGH=${highMissions.length}, MEDIUM=${mediumMissions.length}, LOW=${lowMissions.length}`);
+
+    // Estrategia: Incluir todas las HIGH, hasta 50 MEDIUM, y hasta 20 LOW (máximo 100 total)
+    const maxTotal = 100;
+    const maxMedium = 50;
+    const maxLow = 20;
+
+    let selected: typeof missionsToCreate = [];
+    selected.push(...highMissions); // Todas las HIGH
+    
+    const remainingAfterHigh = maxTotal - selected.length;
+    if (remainingAfterHigh > 0) {
+      selected.push(...mediumMissions.slice(0, Math.min(maxMedium, remainingAfterHigh)));
+    }
+    
+    const remainingAfterMedium = maxTotal - selected.length;
+    if (remainingAfterMedium > 0) {
+      selected.push(...lowMissions.slice(0, Math.min(maxLow, remainingAfterMedium)));
+    }
+
+    this.logger.log(`🎯 Misiones seleccionadas: ${selected.length} (H:${highMissions.length}, M:${Math.min(mediumMissions.length, maxMedium)}, L:${Math.min(lowMissions.length, maxLow)})`);
 
     // Crear misiones usando el servicio pasado
-    const created = await missionsService.createForAnalysis(analysis, limited);
+    const created = await missionsService.createForAnalysis(analysis, selected);
 
     this.logger.log(`✅ Misiones creadas: ${created.length}`);
 
@@ -992,28 +1030,38 @@ export class AnalysisService {
   }
 
   private determineSeverity(tool: string, finding: any): 'high' | 'medium' | 'low' {
+    return this.determineSeverityFromFinding(tool, finding);
+  }
+
+  /**
+   * Determina la severidad de un finding basado en la herramienta y sus propiedades
+   * PMD: priority 1-2 = high, 3 = medium, 4-5 = low
+   * SpotBugs: priority 1 = high, 2 = medium, 3+ = low
+   */
+  private determineSeverityFromFinding(tool: string, finding: any): 'high' | 'medium' | 'low' {
     try {
       switch (tool) {
         case 'spotbugs':
           // Manejar tanto formato XML como formato de demostración
-          const priority = finding.$?.priority || finding.priority;
-          if (priority === '1') return 'high';
-          if (priority === '2') return 'medium';
+          const sbPriority = finding.$?.priority || finding.priority;
+          const sbPriorityNum = typeof sbPriority === 'number' ? sbPriority : parseInt(sbPriority) || 3;
+          if (sbPriorityNum <= 1) return 'high';
+          if (sbPriorityNum === 2) return 'medium';
           return 'low';
           
         case 'pmd':
-          // Para PMD, usar el nivel de priority
+          // PMD usa priority 1-5: 1=crítico, 2=alto, 3=medio, 4=bajo, 5=info
           const pmdPriority = finding.priority || finding.$.priority;
-          this.logger.debug(`[PMD PRIORITY] ${finding.message || finding.rule}: priority=${pmdPriority}`);
-          if (pmdPriority === '1' || pmdPriority === '2') return 'high';
-          if (pmdPriority === '3') return 'medium';
-          return 'low';
+          const pmdPriorityNum = typeof pmdPriority === 'number' ? pmdPriority : parseInt(pmdPriority) || 5;
+          if (pmdPriorityNum <= 2) return 'high';  // priority 1-2 = high
+          if (pmdPriorityNum === 3) return 'medium'; // priority 3 = medium
+          return 'low'; // priority 4-5 = low
           
         case 'semgrep':
           // Para Semgrep, usar severity
           const severity = finding.severity?.toLowerCase() || finding.extra?.severity?.toLowerCase();
-          if (severity === 'error') return 'high';
-          if (severity === 'warning') return 'medium';
+          if (severity === 'error' || severity === 'high') return 'high';
+          if (severity === 'warning' || severity === 'medium') return 'medium';
           return 'low';
           
         case 'eslint':
@@ -1024,9 +1072,9 @@ export class AnalysisService {
 
         case 'direct-detection':
           // Para detección directa, usar el severity si está disponible
-          const directSeverity = finding.severity;
-          if (directSeverity === 'high' || directSeverity === 'CRITICAL' || directSeverity === 'HIGH') return 'high';
-          if (directSeverity === 'medium' || directSeverity === 'MEDIUM' || directSeverity === 'WARNING') return 'medium';
+          const directSeverity = (finding.severity || '').toString().toLowerCase();
+          if (directSeverity === 'high' || directSeverity === 'critical') return 'high';
+          if (directSeverity === 'medium' || directSeverity === 'warning') return 'medium';
           return 'low';
           
         default:
