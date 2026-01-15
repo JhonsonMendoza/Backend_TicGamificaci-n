@@ -18,6 +18,8 @@ export class MissionsService {
   async createForAnalysis(analysis: AnalysisRun, missions: Partial<Mission>[]): Promise<Mission[]> {
     const created: Mission[] = [];
 
+    this.logger.log(`📝 Creando ${missions.length} misiones para analysis ${analysis.id}`);
+
     for (const m of missions) {
       const mission = this.missionRepository.create({
         analysisRunId: analysis.id,
@@ -31,10 +33,12 @@ export class MissionsService {
         metadata: m.metadata || null,
       });
 
-      created.push(await this.missionRepository.save(mission));
+      const saved = await this.missionRepository.save(mission);
+      this.logger.debug(`   ✅ Misión ${saved.id}: ${saved.title?.substring(0, 50)}... (${saved.severity})`);
+      created.push(saved);
     }
 
-    this.logger.log(`Se crearon ${created.length} misiones para analysis ${analysis.id}`);
+    this.logger.log(`✅ Se crearon ${created.length} misiones para analysis ${analysis.id}`);
     return created;
   }
 
@@ -61,7 +65,21 @@ export class MissionsService {
   }
 
   async findByAnalysisId(analysisId: number): Promise<Mission[]> {
-    return this.missionRepository.find({ where: { analysisRunId: analysisId }, order: { createdAt: 'ASC' } });
+    this.logger.log(`🔍 Buscando misiones para analysisId=${analysisId}`);
+    const missions = await this.missionRepository.find({ where: { analysisRunId: analysisId }, order: { createdAt: 'ASC' } });
+    this.logger.log(`   Encontradas: ${missions.length} misiones`);
+    if (missions.length > 0) {
+      const bySeverity = { high: 0, medium: 0, low: 0 };
+      const byTool: Record<string, number> = {};
+      missions.forEach(m => {
+        bySeverity[m.severity] = (bySeverity[m.severity] || 0) + 1;
+        const tool = m.metadata?.tool || 'unknown';
+        byTool[tool] = (byTool[tool] || 0) + 1;
+      });
+      this.logger.log(`   Por severidad: H=${bySeverity.high}, M=${bySeverity.medium}, L=${bySeverity.low}`);
+      this.logger.log(`   Por herramienta: ${JSON.stringify(byTool)}`);
+    }
+    return missions;
   }
 
   async findById(id: number): Promise<Mission> {

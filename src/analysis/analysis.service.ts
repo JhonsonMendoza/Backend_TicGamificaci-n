@@ -643,12 +643,16 @@ export class AnalysisService {
         continue;
       }
       
-      this.logger.log(`📖 [${tr.tool}] Procesando ${Array.isArray(tr.findings) ? tr.findings.length : 'unknown'} findings`);
+      const findingsCount = Array.isArray(tr.findings) ? tr.findings.length : 'objeto';
+      this.logger.log(`📖 [${tr.tool}] Procesando ${findingsCount} findings`);
       
       if (Array.isArray(tr.findings)) {
         for (const f of tr.findings) {
           allFindings.push({ tool: tr.tool, raw: f });
-          this.logger.debug(`  └─ ${tr.tool}: ${f.message || f.rule || f.title || 'sin descripción'}`);
+          // Log más detallado para Semgrep
+          if (tr.tool === 'semgrep') {
+            this.logger.log(`  └─ SEMGREP: check_id=${f.check_id}, severity=${f.severity}, msg=${(f.message || '').substring(0, 50)}`);
+          }
         }
       } else if (typeof tr.findings === 'object') {
         // Try to extract nested 'results' structure
@@ -718,6 +722,14 @@ export class AnalysisService {
 
     this.logger.log(`📋 Total misiones sin filtrar: ${missionsToCreate.length}`);
 
+    // Contar por herramienta para debug
+    const countByTool: Record<string, number> = {};
+    for (const m of missionsToCreate) {
+      const tool = m.metadata?.tool || 'unknown';
+      countByTool[tool] = (countByTool[tool] || 0) + 1;
+    }
+    this.logger.log(`📊 Misiones por herramienta: ${JSON.stringify(countByTool)}`);
+
     // FILTRAR: Priorizar HIGH y MEDIUM, limitar LOW
     // Ordenar por severidad: high primero, luego medium, luego low
     const sortedMissions = missionsToCreate.sort((a, b) => {
@@ -730,7 +742,13 @@ export class AnalysisService {
     const mediumMissions = sortedMissions.filter(m => m.severity === 'medium');
     const lowMissions = sortedMissions.filter(m => m.severity === 'low');
 
-    this.logger.log(`📊 Distribución: HIGH=${highMissions.length}, MEDIUM=${mediumMissions.length}, LOW=${lowMissions.length}`);
+    // Contar Semgrep en cada categoría
+    const semgrepHigh = highMissions.filter(m => m.metadata?.tool === 'semgrep').length;
+    const semgrepMedium = mediumMissions.filter(m => m.metadata?.tool === 'semgrep').length;
+    const semgrepLow = lowMissions.filter(m => m.metadata?.tool === 'semgrep').length;
+    this.logger.log(`📊 Semgrep: HIGH=${semgrepHigh}, MEDIUM=${semgrepMedium}, LOW=${semgrepLow}`);
+
+    this.logger.log(`📊 Distribución total: HIGH=${highMissions.length}, MEDIUM=${mediumMissions.length}, LOW=${lowMissions.length}`);
 
     // Estrategia: Incluir todas las HIGH, hasta 50 MEDIUM, y hasta 20 LOW (máximo 100 total)
     const maxTotal = 100;
@@ -1111,10 +1129,11 @@ export class AnalysisService {
           return 'low'; // priority 4-5 = low
           
         case 'semgrep':
-          // Para Semgrep, usar severity
-          const severity = finding.severity?.toLowerCase() || finding.extra?.severity?.toLowerCase();
-          if (severity === 'error' || severity === 'high') return 'high';
-          if (severity === 'warning' || severity === 'medium') return 'medium';
+          // Para Semgrep, usar severity - valores: ERROR, WARNING, INFO
+          const semgrepSev = (finding.severity || finding.extra?.severity || '').toString().toUpperCase();
+          this.logger.debug(`[Semgrep] Raw severity: ${semgrepSev}, check_id: ${finding.check_id}`);
+          if (semgrepSev === 'ERROR' || semgrepSev === 'HIGH') return 'high';
+          if (semgrepSev === 'WARNING' || semgrepSev === 'MEDIUM') return 'medium';
           return 'low';
           
         case 'eslint':
