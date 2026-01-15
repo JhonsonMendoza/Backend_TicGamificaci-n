@@ -629,8 +629,8 @@ export class AnalysisService {
     const severityEmoji = severity === 'high' ? '🔴' : severity === 'medium' ? '🟡' : '🟢';
     
     if (title) {
-      let description = '**¿Qué está pasando?**\n' + explanation + '\n\n**¿Cómo arreglarlo?**\n' + recommendation;
-      description += '\n\n---\n\n**Herramienta:** ' + tool + '\n**Mensaje técnico:** ' + originalMessage;
+      let description = '### ¿Qué está pasando?\n\n' + explanation + '\n\n### ¿Cómo arreglarlo?\n\n' + recommendation;
+      description += '\n\n---\n\n**🔧 Herramienta:** ' + tool + '\n\n**📋 Mensaje técnico:** ' + originalMessage;
       
       return {
         title: severityEmoji + ' ' + title,
@@ -646,7 +646,7 @@ export class AnalysisService {
       
     return {
       title: severityEmoji + ' Mejora tu código: ' + originalMessage.substring(0, 80) + (originalMessage.length > 80 ? '...' : ''),
-      description: '**¿Qué está pasando?**\n' + genericExplanation + '\n\n**Mensaje del análisis:**\n' + originalMessage + '\n\n**Herramienta:** ' + tool
+      description: '### ¿Qué está pasando?\n\n' + genericExplanation + '\n\n### Mensaje del análisis\n\n' + originalMessage + '\n\n---\n\n**🔧 Herramienta:** ' + tool
     };
   }
 
