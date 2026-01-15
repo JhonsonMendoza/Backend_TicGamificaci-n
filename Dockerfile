@@ -28,6 +28,19 @@ RUN apk add --no-cache \
 # Crear directorio de herramientas
 RUN mkdir -p /opt/tools/bin
 
+# ============ INSTALAR PMD EN BUILDER ============
+RUN echo "📥 Descargando PMD 7.0.0..." && \
+    mkdir -p /opt/tools && \
+    cd /tmp && \
+    curl -L --retry 5 --connect-timeout 10 --max-time 120 \
+    -o pmd-bin-7.0.0.zip "https://repo.maven.apache.org/maven2/net/sourceforge/pmd/pmd-dist/7.0.0/pmd-dist-7.0.0-bin.zip" && \
+    echo "✓ PMD descargado, extrayendo..." && \
+    unzip -q pmd-bin-7.0.0.zip -d /tmp && \
+    mv /tmp/pmd-dist-7.0.0 /opt/tools/pmd && \
+    chmod -R +x /opt/tools/pmd/bin && \
+    /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 && \
+    echo "✅ PMD instalado en /opt/tools/pmd"
+
 # ============ INSTALAR SPOTBUGS EN BUILDER ============
 RUN echo "📥 Descargando SpotBugs 4.8.3..." && \
     cd /tmp && \
@@ -61,14 +74,14 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     openjdk11 \
-    maven \
-    pmd
+    maven
 
 # Configurar JAVA_HOME y PATH
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk \
-    PATH="/opt/tools/spotbugs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    PATH="/opt/tools/pmd/bin:/opt/tools/spotbugs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-# Copiar herramientas precompiladas del builder (solo SpotBugs)
+# Copiar herramientas precompiladas del builder (PMD y SpotBugs)
+COPY --from=builder /opt/tools/pmd /opt/tools/pmd
 COPY --from=builder /opt/tools/spotbugs /opt/tools/spotbugs
 
 # ============ INSTALAR SEMGREP EN RUNTIME VÍA PIP3 ============
@@ -85,7 +98,7 @@ RUN mkdir -p /opt/tools/bin && \
 # Verificación de herramientas
 RUN echo "✅ Verificando herramientas:" && \
     java -version 2>&1 && \
-    pmd --version 2>&1 | head -1 && \
+    /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 && \
     /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 && \
     (python3 -m semgrep --version 2>&1 || echo "⚠️ Semgrep no disponible vía python3 -m")
 
