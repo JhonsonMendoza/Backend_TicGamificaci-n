@@ -626,7 +626,8 @@ export class ToolService {
         .slice(0, 5) // limitar a 5 directorios principales
         .join(',');
       
-      const pmdCmd = `pmd check -d "${sourcePaths}" -f xml -o "${outputXml}" ${rulesParam}`;
+      let pmdExecuted = false;
+      let pmdCmd = `pmd check -d "${sourcePaths}" -f xml -o "${outputXml}" ${rulesParam}`;
       
       this.logger.log(`    Comando: ${pmdCmd}`);
       
@@ -638,9 +639,51 @@ export class ToolService {
         } as any);
         
         this.logger.log(`    ✅ PMD ejecutado correctamente`);
+        pmdExecuted = true;
       } catch (pmdError) {
         // PMD puede retornar exit codes diferentes incluso si genera el XML
-        this.logger.log(`    ℹ️  PMD finalizó: ${(pmdError as any).message.substring(0, 100)}`);
+        this.logger.log(`    ⚠️  PMD directo falló: ${(pmdError as any).message.substring(0, 100)}`);
+        this.logger.log(`    🔄 Intentando vía Maven...`);
+        
+        // Fallback: intentar vía Maven si está disponible
+        try {
+          const pomPath = path.join(projectDir, 'pom.xml');
+          if (await this.fileExists(pomPath)) {
+            this.logger.log(`    📦 Detectado pom.xml, ejecutando vía Maven...`);
+            const mavenCmd = `mvn pmd:pmd -Dpmd.outputDirectory="${projectDir}" -Dpmd.format=xml`;
+            
+            try {
+              await execAsync(mavenCmd, { 
+                timeout: 120000,
+                cwd: projectDir,
+                maxBuffer: 10 * 1024 * 1024
+              } as any);
+              
+              // Maven genera el reporte en target/pmd.xml o target/site/pmd.xml
+              const mavenOutputPaths = [
+                path.join(projectDir, 'target', 'pmd.xml'),
+                path.join(projectDir, 'target', 'site', 'pmd.xml'),
+              ];
+              
+              for (const mPath of mavenOutputPaths) {
+                if (await this.fileExists(mPath)) {
+                  // Copiar resultado a la ubicación estándar
+                  const mavenContent = await fs.readFile(mPath, 'utf-8');
+                  await fs.writeFile(outputXml, mavenContent, 'utf-8');
+                  pmdExecuted = true;
+                  this.logger.log(`    ✅ PMD vía Maven completado`);
+                  break;
+                }
+              }
+            } catch (mavenError) {
+              this.logger.log(`    ⚠️  Maven también falló`);
+            }
+          } else {
+            this.logger.log(`    ℹ️  No hay pom.xml para fallback Maven`);
+          }
+        } catch (fallbackError) {
+          this.logger.log(`    ℹ️  Fallback a Maven no disponible`);
+        }
       }
 
       // Paso 4: Buscar y leer resultados
