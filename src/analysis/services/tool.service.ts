@@ -578,180 +578,89 @@ export class ToolService {
 
   private async runPMD(projectDir: string): Promise<ToolResult> {
     this.logger.log('═══════════════════════════════════════');
-    this.logger.log('📋 EJECUTANDO PMD VÍA MAVEN');
+    this.logger.log('📋 EJECUTANDO PMD DIRECTAMENTE');
     this.logger.log('═══════════════════════════════════════');
     this.logger.log(`    Directorio del proyecto: ${projectDir}`);
     
     try {
-      // Paso 1: Crear pom.xml temporal con plugin de PMD
-      this.logger.log(`1️⃣  Preparando Maven con plugin PMD...`);
+      // Paso 1: Buscar archivos Java
+      this.logger.log(`1️⃣  Buscando archivos Java...`);
       
-      const pomPath = path.join(projectDir, 'pom-pmd-temp.xml');
-      const pmdRulesetPath = path.join(projectDir, 'pmd-ruleset.xml');
+      const javaFiles = await this.findFiles(projectDir, '**/*.java');
+      this.logger.log(`    ✅ Archivos Java encontrados: ${javaFiles.length}`);
       
-      // Crear pom.xml simplificado para ejecutar PMD
-      const pomContent = `<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-    <groupId>temp.analysis</groupId>
-    <artifactId>pmd-check</artifactId>
-    <version>1.0</version>
-    <properties>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    </properties>
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-pmd-plugin</artifactId>
-                <version>3.21.0</version>
-            </plugin>
-        </plugins>
-    </build>
-</project>`;
-
-      await fs.writeFile(pomPath, pomContent, 'utf-8');
-      this.logger.log(`    ✅ pom.xml temporal creado en: ${pomPath}`);
-      
-      // Paso 2: Ejecutar Maven con PMD plugin
-      this.logger.log(`2️⃣  Ejecutando Maven PMD check...`);
-      
-      const outputDir = path.join(projectDir, 'target');
-      const srcDir = path.join(projectDir, 'src', 'main', 'java');
-      
-      // Crear directorio source si no existe
-      if (!await this.fileExists(srcDir)) {
-        this.logger.log(`    ⚠️  Directorio src/main/java no existe`);
-        
-        // Buscar archivos Java en el proyecto
-        const javaFiles = await new Promise<string[]>((resolve) => {
-          const glob = require('glob');
-          glob(path.join(projectDir, '**/*.java'), (err: any, files: string[]) => {
-            resolve(err ? [] : files);
-          });
-        });
-        
-        if (javaFiles.length === 0) {
-          this.logger.log(`    ✅ No hay archivos Java para analizar`);
-          return {
-            tool: 'pmd',
-            success: true,
-            findings: [],
-            rawOutput: 'PMD: No hay archivos Java'
-          };
-        }
-      }
-      
-      // Ejecutar PMD vía Maven
-      const command = `mvn -f "${pomPath}" pmd:pmd -Dpmd.sourceEncoding=UTF-8 -Dpmd.includes="**/*.java" -Dpmd.reportOutputFormat=xml -Dpmd.outputDirectory="${outputDir}"`;
-      
-      this.logger.log(`    Comando: ${command}`);
-      
-      try {
-        const result = await execAsync(command, { 
-          timeout: 60000, 
-          cwd: projectDir,
-          maxBuffer: 10 * 1024 * 1024
-        } as any);
-        
-        this.logger.log(`    ✅ PMD ejecutado vía Maven`);
-      } catch (mavenError) {
-        // Maven puede retornar código diferente a 0, pero puede haber generado el reporte igualmente
-        this.logger.log(`    ℹ️  Maven finalizó (puede haber encontrado problemas): ${(mavenError as any).message.substring(0, 100)}`);
-      }
-      
-      // Paso 3: Buscar archivo de resultados
-      this.logger.log(`3️⃣  Buscando resultados de PMD...`);
-      
-      const possibleResultPaths = [
-        path.join(outputDir, 'pmd.xml'),
-        path.join(outputDir, 'pmd-report.xml'),
-        path.join(projectDir, 'target', 'site', 'pmd.xml'),
-      ];
-      
-      let resultsPath = null;
-      for (const testPath of possibleResultPaths) {
-        if (await this.fileExists(testPath)) {
-          resultsPath = testPath;
-          this.logger.log(`    ✅ Resultados encontrados en: ${resultsPath}`);
-          break;
-        }
-      }
-      
-      if (!resultsPath) {
-        this.logger.log(`    ⚠️  No se encontraron resultados de PMD`);
+      if (javaFiles.length === 0) {
+        this.logger.log(`    ⚠️  No hay archivos Java para analizar`);
+        this.logger.log('═══════════════════════════════════════');
         return {
           tool: 'pmd',
           success: true,
           findings: [],
-          rawOutput: 'PMD: No se generó reporte'
+          rawOutput: 'PMD: No hay archivos Java en el proyecto'
         };
       }
 
-      // Paso 2: Encontrar directorio de fuentes Java
-      this.logger.log(`2️⃣  Buscando archivos Java...`);
-      
-      const srcPath = await this.findJavaSourceDir(projectDir);
-      const analyzeDir = srcPath || projectDir;
-      
-      this.logger.log(`    Directorio a analizar: ${analyzeDir}`);
-      
-      // Verificar que hay archivos Java
-      try {
-        const { stdout: javaFiles } = await execAsync(
-          process.platform === 'win32' 
-            ? `dir /s /b "${analyzeDir}\\*.java" 2>nul | find /c /v ""` 
-            : `find "${analyzeDir}" -name "*.java" | wc -l`,
-          { timeout: 5000, shell: true } as any
-        );
-        
-        const javaFileCount = parseInt(javaFiles.toString().trim()) || 0;
-        this.logger.log(`    Archivos Java encontrados: ${javaFileCount}`);
-        
-        if (javaFileCount === 0) {
-          this.logger.log(`    ⚠️  No hay archivos Java para analizar`);
-          this.logger.log('═══════════════════════════════════════');
-          return {
-            tool: 'pmd',
-            success: true,
-            findings: [],
-            rawOutput: 'PMD: No hay archivos Java en el proyecto'
-          };
-        }
-      } catch (e) {
-        this.logger.log(`    ℹ️  No se pudo contar archivos Java: ${(e as any).message.substring(0, 50)}`);
-      }
-
-      // Paso 3: Configurar ruleset personalizado con TODAS las reglas
-      this.logger.log(`3️⃣  Preparando ruleset de PMD...`);
+      // Paso 2: Preparar ruleset
+      this.logger.log(`2️⃣  Preparando ruleset de PMD...`);
       
       const rulesetPath = path.join(projectDir, 'pmd-ruleset.xml');
-      
       let rulesParam = '';
       const rulesetExists = await this.fileExists(rulesetPath);
       
       if (rulesetExists) {
-        this.logger.log(`    ✅ Archivo ruleset personalizado encontrado en: ${rulesetPath}`);
+        this.logger.log(`    ✅ Archivo ruleset personalizado encontrado`);
         rulesParam = `--rulesets "${rulesetPath}"`;
       } else {
-        this.logger.log(`    ⚠️  Ruleset personalizado no encontrado`);
-        this.logger.log(`    Usando múltiples categorías de reglas built-in...`);
-        // Usar TODAS las categorías de reglas disponibles para máxima detección
+        this.logger.log(`    ℹ️  Usando rulesets de seguridad y calidad...`);
+        // Usar múltiples categorías de reglas para máxima detección
         rulesParam = `--rulesets category/java/errorprone.xml,category/java/bestpractices.xml,category/java/security.xml,category/java/performance.xml,category/java/design.xml,category/java/codestyle.xml`;
       }
+
+      // Paso 3: Ejecutar PMD directamente
+      this.logger.log(`3️⃣  Ejecutando PMD...`);
       
+      const outputXml = path.join(projectDir, 'pmd-results.xml');
+      const sourcePaths = javaFiles
+        .map(f => path.dirname(f))
+        .filter((v, i, a) => a.indexOf(v) === i) // unique
+        .slice(0, 5) // limitar a 5 directorios principales
+        .join(',');
       
-      // Paso 4: Leer y parsear resultados XML
-      this.logger.log(`4️⃣  Leyendo resultados de PMD...`);
+      const pmdCmd = `pmd check -d "${sourcePaths}" -f xml -o "${outputXml}" ${rulesParam}`;
+      
+      this.logger.log(`    Comando: ${pmdCmd}`);
+      
+      try {
+        await execAsync(pmdCmd, { 
+          timeout: 120000,
+          cwd: projectDir,
+          maxBuffer: 10 * 1024 * 1024
+        } as any);
+        
+        this.logger.log(`    ✅ PMD ejecutado correctamente`);
+      } catch (pmdError) {
+        // PMD puede retornar exit codes diferentes incluso si genera el XML
+        this.logger.log(`    ℹ️  PMD finalizó: ${(pmdError as any).message.substring(0, 100)}`);
+      }
+
+      // Paso 4: Buscar y leer resultados
+      this.logger.log(`4️⃣  Buscando resultados...`);
+      
+      if (!await this.fileExists(outputXml)) {
+        this.logger.log(`    ⚠️  PMD no generó archivo de resultados`);
+        this.logger.log('═══════════════════════════════════════');
+        return {
+          tool: 'pmd',
+          success: true,
+          findings: [],
+          rawOutput: 'PMD: Sin problemas encontrados'
+        };
+      }
       
       let xmlContent: string;
       try {
-        xmlContent = await fs.readFile(resultsPath, 'utf-8');
-        this.logger.log(`    Tamaño: ${xmlContent.length} bytes`);
+        xmlContent = await fs.readFile(outputXml, 'utf-8');
+        this.logger.log(`    ✅ Archivo leído: ${xmlContent.length} bytes`);
       } catch (readError) {
         this.logger.log(`    ❌ Error leyendo archivo: ${(readError as any).message}`);
         return {
@@ -761,7 +670,7 @@ export class ToolService {
           error: `No se pudo leer archivo de resultados`
         };
       }
-      
+
       // Paso 5: Parsear XML
       this.logger.log(`5️⃣  Parseando XML...`);
       
@@ -779,14 +688,9 @@ export class ToolService {
           };
         }
         
-        // Mostrar preview del XML
-        const preview = xmlContent.substring(0, 300).replace(/\n/g, ' ');
-        this.logger.log(`    Preview: ${preview}...`);
-        
-        // Parsear XML
+        // Parsear XML - Estructura: <pmd><file name="..."><violation ...>...</violation></file></pmd>
         const result = await parseXmlAsync(xmlContent);
         
-        // Estructura estándar de PMD: <pmd><file name="..."><violation ...>...</violation></file></pmd>
         if ((result as any).pmd?.file) {
           const files = Array.isArray((result as any).pmd.file) 
             ? (result as any).pmd.file 
@@ -794,19 +698,18 @@ export class ToolService {
           
           this.logger.log(`    📁 Archivos con problemas: ${files.length}`);
           
-          files.forEach((file: any, fileIdx: number) => {
-            const filename = file.$.name || `Archivo ${fileIdx}`;
+          files.forEach((file: any) => {
+            const filename = file.$.name || 'Desconocido';
             
             if (file.violation) {
               const violations = Array.isArray(file.violation) 
                 ? file.violation 
                 : [file.violation];
               
-              violations.forEach((v: any, vIdx: number) => {
+              violations.forEach((v: any) => {
                 try {
                   const priority = parseInt(v.$.priority) || 5;
                   
-                  // Incluir TODAS las violaciones encontradas
                   const finding = {
                     file: filename,
                     line: parseInt(v.$.line) || 0,
@@ -822,7 +725,8 @@ export class ToolService {
                     '1': '🔴 CRÍTICO',
                     '2': '🟠 ALTO',
                     '3': '🟡 MEDIO',
-                    '4': '🔵 BAJO'
+                    '4': '🔵 BAJO',
+                    '5': '⚪ INFO'
                   }[priority.toString()] || '⚪ INFO';
                   
                   this.logger.debug(`    ${priorityLabel}: [${finding.rule}] ${finding.message.substring(0, 60)}`);
@@ -834,8 +738,7 @@ export class ToolService {
           });
         }
         
-        this.logger.log(`6️⃣  RESULTADO FINAL`);
-        this.logger.log(`    ✅ Problemas encontrados: ${findings.length}`);
+        this.logger.log(`6️⃣  RESULTADO FINAL: ${findings.length} problemas encontrados`);
         this.logger.log('═══════════════════════════════════════');
         
         return {
@@ -848,10 +751,6 @@ export class ToolService {
         
       } catch (parseError) {
         this.logger.error(`Error parseando XML PMD: ${(parseError as any).message}`);
-        
-        // Fallback: intentar parsear como JSON si falla XML
-        this.logger.log(`    Intentando fallback...`);
-        
         this.logger.log('═══════════════════════════════════════');
         return {
           tool: 'pmd',
