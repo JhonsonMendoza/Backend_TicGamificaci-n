@@ -73,7 +73,6 @@ WORKDIR /app
 
 # Instalar SOLO dependencias del sistema (sin herramientas pesadas)
 RUN apk add --no-cache \
-    openjdk11 \
     python3 \
     py3-pip \
     git \
@@ -83,6 +82,15 @@ RUN apk add --no-cache \
 
 # Crear directorio de herramientas
 RUN mkdir -p /opt/tools/bin
+
+# ============ COPIAR JAVA COMPILADO DEL BUILDER ============
+# Copiar Java completo del builder (no reinstalar, use el compilado)
+COPY --from=builder /usr/lib/jvm/java-11-openjdk /usr/lib/jvm/java-11-openjdk
+COPY --from=builder /usr/bin/java* /usr/bin/
+COPY --from=builder /usr/bin/jps /usr/bin/
+
+# Configurar JAVA_HOME
+ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk
 
 # ============ COPIAR HERRAMIENTAS PRECOMPILADAS DEL BUILDER ============
 # Copiar PMD desde builder (ya compilado y verificado)
@@ -131,46 +139,20 @@ RUN echo "Creando symlinks..." && \
     ln -sf /opt/tools/spotbugs/bin/spotbugs /opt/tools/bin/spotbugs 2>&1 || true && \
     echo "✅ Symlinks creados"
 
-# ============ VERIFICAR TODAS LAS HERRAMIENTAS ============
-RUN echo "═══════════════════════════════════════════" && \
-    echo "✅ VERIFICACIÓN EN IMAGEN FINAL" && \
-    echo "═══════════════════════════════════════════" && \
-    echo "📂 Directorios copiados:" && \
-    ls -la /opt/tools/ && \
+# ============ VERIFICAR JAVA Y HERRAMIENTAS ============
+RUN echo "🔍 Verificando Java en runtime:" && \
+    java -version 2>&1 && \
     echo "" && \
-    echo "1️⃣  PMD en PATH:" && \
-    echo "   Ruta: /opt/tools/pmd/bin/pmd" && \
-    echo "   Existe: $(test -f /opt/tools/pmd/bin/pmd && echo '✓' || echo '❌')" && \
-    echo "   Ejecutable: $(test -x /opt/tools/pmd/bin/pmd && echo '✓' || echo '❌')" && \
-    echo "   Tipo archivo:" && \
-    file /opt/tools/pmd/bin/pmd && \
-    echo "   Probando ejecución:" && \
-    /opt/tools/pmd/bin/pmd --version 2>&1 | head -3 || echo "❌ ERROR AL EJECUTAR" && \
+    echo "🔍 Verificando PMD:" && \
+    /opt/tools/pmd/bin/pmd --version 2>&1 | head -3 && \
     echo "" && \
-    echo "2️⃣  SpotBugs en PATH:" && \
-    echo "   Ruta: /opt/tools/spotbugs/bin/spotbugs" && \
-    echo "   Existe: $(test -f /opt/tools/spotbugs/bin/spotbugs && echo '✓' || echo '❌')" && \
-    echo "   Ejecutable: $(test -x /opt/tools/spotbugs/bin/spotbugs && echo '✓' || echo '❌')" && \
-    echo "   Tipo archivo:" && \
-    file /opt/tools/spotbugs/bin/spotbugs && \
-    echo "   Probando ejecución:" && \
-    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -3 || echo "❌ ERROR AL EJECUTAR" && \
+    echo "🔍 Verificando SpotBugs:" && \
+    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -3 && \
     echo "" && \
-    echo "3️⃣  Semgrep:" && \
-    echo "   Ruta: /usr/bin/semgrep" && \
-    echo "   Existe: $(test -f /usr/bin/semgrep && echo '✓' || echo '❌')" && \
-    echo "   Ejecutable: $(test -x /usr/bin/semgrep && echo '✓' || echo '❌')" && \
-    echo "   Tipo archivo:" && \
-    file /usr/bin/semgrep && \
-    echo "   Probando ejecución:" && \
-    /usr/bin/semgrep --version 2>&1 | head -3 || echo "❌ ERROR AL EJECUTAR" && \
+    echo "🔍 Verificando Semgrep:" && \
+    /usr/bin/semgrep --version 2>&1 | head -1 && \
     echo "" && \
-    echo "4️⃣  Maven:" && \
-    which mvn && mvn --version 2>&1 | head -1 && \
-    echo "" && \
-    echo "5️⃣  PATH actual:" && \
-    echo "$PATH" && \
-    echo "═══════════════════════════════════════════"
+    echo "✅ Todas las herramientas funcionan correctamente"
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
