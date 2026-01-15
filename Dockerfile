@@ -21,13 +21,9 @@ RUN npm run build
 # Instalar dependencias necesarias para herramientas en builder
 RUN apk add --no-cache \
     openjdk11 \
-    glibc \
-    glibc-bin \
-    glibc-i18n \
     curl \
     unzip \
-    bash \
-    musl-utils
+    bash
 
 # Crear directorio de herramientas
 RUN mkdir -p /opt/tools/bin
@@ -83,9 +79,6 @@ RUN apk add --no-cache \
     curl \
     bash \
     ca-certificates \
-    glibc \
-    glibc-bin \
-    glibc-i18n \
     tzdata \
     openjdk11 \
     maven
