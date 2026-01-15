@@ -1003,20 +1003,19 @@ export class ToolService {
         } catch (e) {
           this.logger.debug(`❌ semgrep no encontrado en: ${sbPath} - ${(e as any).message.substring(0, 40)}`);
         }
-        }
-        
-        // Si aún no lo encontró, intentar con python
-        if (!semgrepAvailable) {
-          this.logger.log('⚠️ semgrep executable not found, checking python installation...');
-          try {
-            await execAsync('python --version', { timeout: 5000 });
-            // Si Python está disponible, usar como fallback
-            semgrepCommand = 'python -m semgrep';
-            this.logger.warn('⚠️ Using deprecated method: python -m semgrep (consider installing semgrep as CLI)');
-            semgrepAvailable = true;
-          } catch (e) {
-            this.logger.warn('⚠️ Neither semgrep CLI nor Python found - semgrep will be skipped');
-          }
+      }
+      
+      // Si aún no lo encontró, intentar con python
+      if (!semgrepAvailable) {
+        this.logger.log('⚠️ semgrep executable not found, checking python installation...');
+        try {
+          await execAsync('python --version', { timeout: 5000 });
+          // Si Python está disponible, usar como fallback
+          semgrepCommand = 'python -m semgrep';
+          this.logger.warn('⚠️ Using deprecated method: python -m semgrep (consider installing semgrep as CLI)');
+          semgrepAvailable = true;
+        } catch (e) {
+          this.logger.warn('⚠️ Neither semgrep CLI nor Python found - semgrep will be skipped');
         }
       }
       
