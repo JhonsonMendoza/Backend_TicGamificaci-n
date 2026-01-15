@@ -94,7 +94,17 @@ COPY --from=builder /opt/tools/spotbugs /opt/tools/spotbugs
 # Verificar que los COPYs funcionaron
 RUN echo "✅ COPY desde builder completado" && \
     test -d /opt/tools/pmd && echo "   PMD: ✓" || echo "   PMD: ✗ NO COPIADO" && \
-    test -d /opt/tools/spotbugs && echo "   SpotBugs: ✓" || echo "   SpotBugs: ✗ NO COPIADO"
+    test -d /opt/tools/spotbugs && echo "   SpotBugs: ✓" || echo "   SpotBugs: ✗ NO COPIADO" && \
+    echo "" && \
+    echo "🔍 Verificación POST-COPY de PMD:" && \
+    ls -la /opt/tools/pmd/bin/pmd 2>/dev/null || echo "❌ No existe /opt/tools/pmd/bin/pmd" && \
+    test -x /opt/tools/pmd/bin/pmd && echo "✓ Ejecutable" || echo "❌ NO ejecutable" && \
+    file /opt/tools/pmd/bin/pmd 2>/dev/null || echo "❌ No se puede verificar tipo" && \
+    echo "" && \
+    echo "🔍 Verificación POST-COPY de SpotBugs:" && \
+    ls -la /opt/tools/spotbugs/bin/spotbugs 2>/dev/null || echo "❌ No existe /opt/tools/spotbugs/bin/spotbugs" && \
+    test -x /opt/tools/spotbugs/bin/spotbugs && echo "✓ Ejecutable" || echo "❌ NO ejecutable" && \
+    file /opt/tools/spotbugs/bin/spotbugs 2>/dev/null || echo "❌ No se puede verificar tipo"
 
 # ============ INSTALAR SEMGREP EN RUNTIME ============
 RUN echo "📦 Instalando Semgrep via pip3..." && \
@@ -129,17 +139,36 @@ RUN echo "═══════════════════════�
     ls -la /opt/tools/ && \
     echo "" && \
     echo "1️⃣  PMD en PATH:" && \
-    /opt/tools/pmd/bin/pmd --version 2>&1 | head -1 || echo "❌ PMD no ejecuta" && \
-    echo "   Ejecutable: $(test -x /opt/tools/pmd/bin/pmd && echo '✓' || echo '✗')" && \
+    echo "   Ruta: /opt/tools/pmd/bin/pmd" && \
+    echo "   Existe: $(test -f /opt/tools/pmd/bin/pmd && echo '✓' || echo '❌')" && \
+    echo "   Ejecutable: $(test -x /opt/tools/pmd/bin/pmd && echo '✓' || echo '❌')" && \
+    echo "   Tipo archivo:" && \
+    file /opt/tools/pmd/bin/pmd && \
+    echo "   Probando ejecución:" && \
+    /opt/tools/pmd/bin/pmd --version 2>&1 | head -3 || echo "❌ ERROR AL EJECUTAR" && \
     echo "" && \
     echo "2️⃣  SpotBugs en PATH:" && \
-    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -1 || echo "❌ SpotBugs no ejecuta" && \
-    echo "   Ejecutable: $(test -x /opt/tools/spotbugs/bin/spotbugs && echo '✓' || echo '✗')" && \
+    echo "   Ruta: /opt/tools/spotbugs/bin/spotbugs" && \
+    echo "   Existe: $(test -f /opt/tools/spotbugs/bin/spotbugs && echo '✓' || echo '❌')" && \
+    echo "   Ejecutable: $(test -x /opt/tools/spotbugs/bin/spotbugs && echo '✓' || echo '❌')" && \
+    echo "   Tipo archivo:" && \
+    file /opt/tools/spotbugs/bin/spotbugs && \
+    echo "   Probando ejecución:" && \
+    /opt/tools/spotbugs/bin/spotbugs -version 2>&1 | head -3 || echo "❌ ERROR AL EJECUTAR" && \
     echo "" && \
     echo "3️⃣  Semgrep:" && \
-    which semgrep && semgrep --version 2>&1 | head -1 || echo "❌ Semgrep no encontrado" && \
+    echo "   Ruta: /usr/bin/semgrep" && \
+    echo "   Existe: $(test -f /usr/bin/semgrep && echo '✓' || echo '❌')" && \
+    echo "   Ejecutable: $(test -x /usr/bin/semgrep && echo '✓' || echo '❌')" && \
+    echo "   Tipo archivo:" && \
+    file /usr/bin/semgrep && \
+    echo "   Probando ejecución:" && \
+    /usr/bin/semgrep --version 2>&1 | head -3 || echo "❌ ERROR AL EJECUTAR" && \
     echo "" && \
-    echo "4️⃣  PATH actual:" && \
+    echo "4️⃣  Maven:" && \
+    which mvn && mvn --version 2>&1 | head -1 && \
+    echo "" && \
+    echo "5️⃣  PATH actual:" && \
     echo "$PATH" && \
     echo "═══════════════════════════════════════════"
 
