@@ -143,10 +143,13 @@ export class AnalysisService {
       const processedFindings = this.processToolResults(toolResults);
       analysisRun.findings = processedFindings;
 
-      // 5.1 Si es re-análisis del mismo proyecto, actualizar estado de misiones existentes
+      // 5.1 Generar misiones
+      let missions: any[] = [];
       if (isReanalysis && previousAnalysis && analysisRun.id === previousAnalysis.id) {
         try {
           await this.updateMissionsStatus(analysisRun, toolResults);
+          // Obtener misiones existentes para contar
+          missions = await this.missionsService.findByAnalysisId(analysisRun.id);
         } catch (e) {
           this.logger.warn('No se pudo actualizar estado de misiones: ' + e.message);
         }
@@ -154,20 +157,32 @@ export class AnalysisService {
         // 5.2 Generar misiones automáticas para análisis nuevo
         try {
           if (this.missionsService && typeof this.missionsService.createForAnalysis === 'function') {
-            await this.generateMissionsFromFindings(analysisRun, toolResults, this.missionsService);
+            missions = await this.generateMissionsFromFindings(analysisRun, toolResults, this.missionsService);
           }
         } catch (e) {
           this.logger.warn('No se pudo generar misiones automáticamente: ' + e.message);
         }
       }
 
-      // 6. Calcular métricas
-      const metrics = this.calculateMetrics(toolResults);
-      analysisRun.totalIssues = metrics.totalIssues;
-      analysisRun.highSeverityIssues = metrics.highSeverityIssues;
-      analysisRun.mediumSeverityIssues = metrics.mediumSeverityIssues;
-      analysisRun.lowSeverityIssues = metrics.lowSeverityIssues;
-      analysisRun.qualityScore = metrics.qualityScore;
+      // 6. Calcular métricas basadas en MISIONES (no en todos los findings)
+      // Esto asegura que Problemas = Misiones
+      const missionsByPriority = {
+        high: missions.filter((m: any) => m.severity === 'high').length,
+        medium: missions.filter((m: any) => m.severity === 'medium').length,
+        low: missions.filter((m: any) => m.severity === 'low').length
+      };
+      
+      analysisRun.totalIssues = missions.length;
+      analysisRun.highSeverityIssues = missionsByPriority.high;
+      analysisRun.mediumSeverityIssues = missionsByPriority.medium;
+      analysisRun.lowSeverityIssues = missionsByPriority.low;
+      analysisRun.qualityScore = this.calculateQualityScoreFromMissions(
+        missionsByPriority.high, 
+        missionsByPriority.medium, 
+        missionsByPriority.low
+      );
+
+      this.logger.log(`📊 Métricas basadas en misiones: H=${missionsByPriority.high}, M=${missionsByPriority.medium}, L=${missionsByPriority.low}, Total=${missions.length}`);
 
       // 7. Finalizar análisis
       analysisRun.status = 'completed';
@@ -298,65 +313,53 @@ export class AnalysisService {
       // 6. Procesar resultados y crear missions
       const missions = await this.generateMissionsFromFindings(analysisRun, toolResults, this.missionsService);
 
-      // 7. Recolectar findings
-      const allFindings = [];
-      const toolFindings: { [key: string]: number } = {
-        'pmd': 0,
-        'semgrep': 0,
-        'spotbugs': 0,
-        'direct-detection': 0
+      // 7. IMPORTANTE: Los contadores de problemas = cantidad de misiones creadas
+      // Esto asegura coherencia entre lo que se muestra y las misiones disponibles
+      const missionsByPriority = {
+        high: missions.filter((m: any) => m.severity === 'high').length,
+        medium: missions.filter((m: any) => m.severity === 'medium').length,
+        low: missions.filter((m: any) => m.severity === 'low').length
       };
 
-      for (const result of toolResults) {
-        if (result.findings && result.findings.length > 0) {
-          // Normalizar findings añadiendo severity basada en priority/severity existente
-          const normalizedFindings = result.findings.map((f: any) => {
-            const severity = this.determineSeverityFromFinding(result.tool, f);
-            return { ...f, severity, tool: result.tool };
-          });
-          allFindings.push(...normalizedFindings);
-          toolFindings[result.tool] = result.findings.length;
-          this.logger.log(`  ✓ ${result.tool}: ${result.findings.length} hallazgos`);
-        }
-      }
+      this.logger.log(`📊 Misiones creadas: HIGH=${missionsByPriority.high}, MEDIUM=${missionsByPriority.medium}, LOW=${missionsByPriority.low}, TOTAL=${missions.length}`);
 
-      // 8. Calcular métricas basadas en severity normalizada
-      const highSeverity = allFindings.filter(f => f.severity === 'high').length;
-      const mediumSeverity = allFindings.filter(f => f.severity === 'medium').length;
-      const lowSeverity = allFindings.filter(f => f.severity === 'low').length;
+      // Calcular quality score basado en misiones (problemas reales)
+      const qualityScore = this.calculateQualityScoreFromMissions(missionsByPriority.high, missionsByPriority.medium, missionsByPriority.low);
 
-      this.logger.log(`📊 Severidades calculadas: HIGH=${highSeverity}, MEDIUM=${mediumSeverity}, LOW=${lowSeverity}`);
-
-      const qualityScore = this.calculateQualityScore(allFindings.length);
-
-      // 9. Actualizar análisis con resultados (usar processToolResults para estructura correcta)
+      // 8. Actualizar análisis con resultados
       const processedFindings = this.processToolResults(toolResults);
       
+      // Contar findings por herramienta para referencia
+      const toolFindings: { [key: string]: number } = {};
+      for (const result of toolResults) {
+        toolFindings[result.tool] = result.findings?.length || 0;
+      }
+      
       analysisRun.status = 'completed';
-      analysisRun.totalIssues = allFindings.length;
-      analysisRun.highSeverityIssues = highSeverity;
-      analysisRun.mediumSeverityIssues = mediumSeverity;
-      analysisRun.lowSeverityIssues = lowSeverity;
+      analysisRun.totalIssues = missions.length; // Total = misiones
+      analysisRun.highSeverityIssues = missionsByPriority.high;
+      analysisRun.mediumSeverityIssues = missionsByPriority.medium;
+      analysisRun.lowSeverityIssues = missionsByPriority.low;
       analysisRun.qualityScore = qualityScore;
       analysisRun.toolResults = toolFindings;
-      analysisRun.findings = processedFindings; // Usar estructura correcta, no JSON.stringify
+      analysisRun.findings = processedFindings;
       analysisRun.completedAt = new Date();
       
       await this.analysisRunRepository.save(analysisRun);
 
-      // 10. Procesar achievements
+      // 9. Procesar achievements
       if (analysisRun.userId) {
         await this.achievementsService.checkAndUnlockAchievements(analysisRun.userId);
       }
 
-      this.logger.log(`✅ Análisis completado exitosamente. ID: ${analysisRun.id}, Hallazgos: ${allFindings.length}`);
+      this.logger.log(`✅ Análisis completado exitosamente. ID: ${analysisRun.id}, Misiones: ${missions.length}`);
 
       return {
         id: analysisRun.id,
         student: analysisRun.student,
         originalFileName: analysisRun.originalFileName,
         status: analysisRun.status,
-        findings: allFindings,
+        findings: processedFindings,
         totalIssues: analysisRun.totalIssues,
         highSeverityIssues: analysisRun.highSeverityIssues,
         mediumSeverityIssues: analysisRun.mediumSeverityIssues,
@@ -393,6 +396,24 @@ export class AnalysisService {
       qualityScore = Math.max(0, 100 - (issueCount * 2));
     }
     return Math.round(qualityScore * 100) / 100;
+  }
+
+  /**
+   * Calcula el score de calidad basado en las misiones (problemas reales filtrados)
+   * La escala es 0-100 donde:
+   * - HIGH issues penalizan más (-5 por cada uno)
+   * - MEDIUM issues penalizan moderadamente (-2 por cada uno)
+   * - LOW issues penalizan poco (-0.5 por cada uno)
+   */
+  private calculateQualityScoreFromMissions(high: number, medium: number, low: number): number {
+    let score = 100;
+    score -= high * 5;      // Cada problema crítico resta 5 puntos
+    score -= medium * 2;    // Cada problema medio resta 2 puntos
+    score -= low * 0.5;     // Cada problema leve resta 0.5 puntos
+    
+    // Limitar entre 0 y 100
+    score = Math.max(0, Math.min(100, score));
+    return Math.round(score * 10) / 10; // Redondear a 1 decimal
   }
 
   async getAnalysisById(id: number): Promise<AnalysisRun> {
@@ -552,6 +573,38 @@ export class AnalysisService {
       title = '⚡ Código ineficiente - mejora el rendimiento';
       explanation = 'Este código podría ser mucho más rápido usando mejores estructuras y algoritmos.';
       recommendation = 'Usa HashMap en lugar de ArrayList, evita loops anidados, carga datos una sola vez.';
+    } else if (msgLower.includes('integrity') || msgLower.includes('missing-integrity')) {
+      title = '🔒 Recurso externo sin verificación de integridad';
+      explanation = 'Los scripts/estilos externos deben tener atributo "integrity" para prevenir ataques de modificación.';
+      recommendation = 'Agrega integrity="sha384-..." y crossorigin="anonymous" a tus tags <script> y <link>';
+    } else if (msgLower.includes('csrf') || msgLower.includes('cross-site request')) {
+      title = '🔴 Posible vulnerabilidad CSRF';
+      explanation = 'Sin protección CSRF, un atacante puede ejecutar acciones en nombre de usuarios logueados.';
+      recommendation = 'Usa tokens CSRF en formularios: <input type="hidden" name="_csrf" th:value="${_csrf.token}">';
+    } else if (msgLower.includes('cors') || msgLower.includes('cross-origin')) {
+      title = '⚠️ Configuración CORS permisiva';
+      explanation = 'Permitir todos los orígenes (*) puede exponer tu API a ataques desde sitios maliciosos.';
+      recommendation = 'Limita CORS a dominios específicos: @CrossOrigin(origins = "https://tudominio.com")';
+    } else if (msgLower.includes('http') && (msgLower.includes('https') || msgLower.includes('insecure'))) {
+      title = '🔒 Conexión insegura HTTP en lugar de HTTPS';
+      explanation = 'HTTP transmite datos sin encriptar. Las contraseñas viajan en texto plano.';
+      recommendation = 'Siempre usa HTTPS para conexiones externas, especialmente para autenticación.';
+    } else if (msgLower.includes('cookie') && (msgLower.includes('secure') || msgLower.includes('httponly'))) {
+      title = '🔒 Cookie sin atributos de seguridad';
+      explanation = 'Las cookies de sesión deben tener HttpOnly (previene robo XSS) y Secure (solo HTTPS).';
+      recommendation = 'Configura: cookie.setHttpOnly(true); cookie.setSecure(true);';
+    } else if (msgLower.includes('deserialization') || msgLower.includes('deserialize')) {
+      title = '🔴 Deserialización insegura';
+      explanation = 'Deserializar datos no confiables puede ejecutar código malicioso en tu servidor.';
+      recommendation = 'Nunca deserialices datos de fuentes no confiables. Usa JSON en lugar de ObjectInputStream.';
+    } else if (msgLower.includes('logging') || msgLower.includes('log4j') || msgLower.includes('sensitive')) {
+      title = '⚠️ Información sensible en logs';
+      explanation = 'Loguear contraseñas, tokens o datos personales es un riesgo de seguridad.';
+      recommendation = 'Nunca loguees datos sensibles. Usa logger.info("Usuario {} autenticado", username);';
+    } else if (msgLower.includes('deprecated')) {
+      title = '⚠️ Uso de API deprecada';
+      explanation = 'Las APIs deprecadas pueden ser eliminadas en futuras versiones o tener problemas de seguridad.';
+      recommendation = 'Actualiza a la versión recomendada según la documentación oficial.';
     }
 
     const severityEmoji = severity === 'high' ? '🔴' : severity === 'medium' ? '🟡' : '🟢';

@@ -115,10 +115,10 @@ export class ToolService {
         const mavenProjectDir = path.dirname(pomPath);
         const mavenResult = await this.runSpotBugsWithMaven(mavenProjectDir);
         
-        // Si Maven falla pero hay resultados de SpotBugs directo, usarlos
+        // Si Maven falla, intentar SpotBugs directo CON la carpeta del proyecto Maven (no projectDir)
         if (!mavenResult.success) {
-          this.logger.log('⚠️ Maven falló, intentando SpotBugs directo...');
-          return await this.runSpotBugsDirectly(projectDir);
+          this.logger.log('⚠️ Maven falló, intentando SpotBugs directo con el proyecto Maven...');
+          return await this.runSpotBugsDirectlyOnMavenProject(mavenProjectDir);
         }
         return mavenResult;
       } else {
@@ -652,6 +652,106 @@ export class ToolService {
     }
   }
 
+  /**
+   * Ejecuta SpotBugs directamente sobre un proyecto Maven que ya falló con Maven
+   * Usa los archivos .class ya compilados en target/classes
+   */
+  private async runSpotBugsDirectlyOnMavenProject(projectDir: string): Promise<ToolResult> {
+    this.logger.log('📝 Ejecutando SpotBugs directo sobre proyecto Maven fallido...');
+    
+    try {
+      const classesDir = path.join(projectDir, 'target', 'classes');
+      const outputXml = path.join(projectDir, 'target', 'spotbugs-direct.xml');
+      
+      // Verificar que existen archivos compilados
+      let classFiles: string[] = [];
+      try {
+        classFiles = await this.findFiles(classesDir, '**/*.class');
+      } catch (e) {
+        this.logger.warn(`⚠️ No se pudo leer directorio classes: ${e.message}`);
+      }
+      
+      if (classFiles.length === 0) {
+        this.logger.warn('⚠️ No hay archivos .class compilados para analizar');
+        return {
+          tool: 'spotbugs',
+          success: false,
+          findings: [],
+          error: 'No hay archivos .class compilados. El proyecto puede tener errores de compilación.'
+        };
+      }
+      
+      this.logger.log(`📍 Analizando ${classFiles.length} archivos .class desde ${classesDir}`);
+      
+      // Buscar SpotBugs ejecutable
+      let spotbugsExe = 'spotbugs';
+      const spotbugsPaths = [
+        '/opt/tools/spotbugs/bin/spotbugs',
+        '/opt/tools/spotbugs-4.8.3/bin/spotbugs',
+        '/usr/local/bin/spotbugs',
+        'spotbugs'
+      ];
+      
+      for (const sbPath of spotbugsPaths) {
+        try {
+          await execAsync(`${sbPath} -version`, { timeout: 5000 });
+          spotbugsExe = sbPath;
+          this.logger.log(`✅ SpotBugs encontrado en: ${sbPath}`);
+          break;
+        } catch (e) {
+          this.logger.debug(`❌ SpotBugs no disponible en ${sbPath}`);
+        }
+      }
+      
+      // Ejecutar SpotBugs
+      const spotbugsCmd = `${spotbugsExe} -textui -xml:withMessages -output "${outputXml}" "${classesDir}"`;
+      this.logger.log(`📋 Comando: ${spotbugsCmd}`);
+      
+      try {
+        await execAsync(spotbugsCmd, { timeout: 300000 });
+        this.logger.log('✅ SpotBugs directo completado');
+      } catch (e) {
+        this.logger.warn('⚠️ SpotBugs completó (puede haber detectado bugs)');
+      }
+      
+      // Parsear resultados
+      if (!await this.fileExists(outputXml)) {
+        this.logger.warn('⚠️ SpotBugs no generó archivo XML');
+        return {
+          tool: 'spotbugs',
+          success: false,
+          findings: [],
+          error: 'SpotBugs no generó archivo de resultados XML'
+        };
+      }
+      
+      const xmlContent = await fs.readFile(outputXml, 'utf-8');
+      const result = await parseXmlAsync(xmlContent);
+      
+      const bugInstances = (result as any).BugCollection?.BugInstance || [];
+      const findings = Array.isArray(bugInstances) ? bugInstances : (bugInstances ? [bugInstances] : []);
+      
+      this.logger.log(`✅ SpotBugs directo encontró ${findings.length} bugs`);
+      
+      const normalizedFindings = findings.map((bug: any) => this.normalizeSpotBugsFinding(bug));
+      
+      return {
+        tool: 'spotbugs',
+        success: normalizedFindings.length >= 0, // Éxito incluso si no hay bugs
+        findings: normalizedFindings,
+        findingsCount: normalizedFindings.length
+      };
+    } catch (error) {
+      this.logger.error('Error en runSpotBugsDirectlyOnMavenProject:', error.message);
+      return {
+        tool: 'spotbugs',
+        success: false,
+        findings: [],
+        error: error.message
+      };
+    }
+  }
+
   private async runPMD(projectDir: string): Promise<ToolResult> {
     this.logger.log('═══════════════════════════════════════');
     this.logger.log('📋 EJECUTANDO PMD DIRECTAMENTE');
@@ -868,6 +968,13 @@ export class ToolService {
               violations.forEach((v: any) => {
                 try {
                   const priority = parseInt(v.$.priority) || 5;
+                  
+                  // FILTRAR: Solo incluir prioridades 1-3 (críticos a medios)
+                  // Prioridad 4-5 son sugerencias menores que no son problemas reales
+                  if (priority > 3) {
+                    this.logger.debug(`    ⏭️  Ignorando priority ${priority}: ${v.$.rule || 'UnknownRule'}`);
+                    return; // Saltar este finding
+                  }
                   
                   const finding = {
                     file: filename,
