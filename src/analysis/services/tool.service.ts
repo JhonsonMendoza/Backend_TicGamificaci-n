@@ -235,36 +235,65 @@ export class ToolService {
       // Paso 1: Compilar proyecto Maven
       this.logger.log('🔨 Paso 1: Compilando proyecto Maven...');
       let compilationSucceeded = false;
-      try {
-        const { stdout: compileStdout, stderr: compileStderr } = await execAsync(`${mavenCmd} clean compile -DskipTests`, { cwd: projectDir, timeout: 300000 });
-        this.logger.log('✅ Compilación Maven completada');
+      const classesDir = path.join(projectDir, 'target', 'classes');
+      
+      // Intentar compilar con diferentes estrategias
+      const mavenCommands = [
+        `${mavenCmd} compile -DskipTests -q`,  // Primero intento silencioso
+        `${mavenCmd} compile -DskipTests -o`,  // Modo offline (usa caché)
+        `${mavenCmd} compile -DskipTests --fail-never`,  // Continuar aunque falle
+      ];
+      
+      for (const cmd of mavenCommands) {
+        if (compilationSucceeded) break;
         
-        if (compileStdout.includes('BUILD SUCCESS') || !compileStderr.toLowerCase().includes('[error]')) {
-          this.logger.log('✅ BUILD SUCCESS confirmado en Maven');
-          compilationSucceeded = true;
-        } else {
-          this.logger.warn('⚠️ Compilación completada pero con posibles errores');
-          compilationSucceeded = true; // Intentar continuar de todos modos
-        }
-      } catch (compileError) {
-        this.logger.error(`❌ Error en compilación Maven: ${compileError.message}`);
-        // Verificar si aun así hay archivos .class generados
-        const classesDir = path.join(projectDir, 'target', 'classes');
         try {
-          const classFiles = await this.findFiles(classesDir, '**/*.class');
-          if (classFiles.length > 0) {
-            this.logger.log(`✅ A pesar del error, hay ${classFiles.length} archivos .class - continuando`);
+          this.logger.log(`   Intentando: ${cmd.replace(mavenCmd, 'mvn')}`);
+          const { stdout, stderr } = await execAsync(cmd, { 
+            cwd: projectDir, 
+            timeout: 300000,
+            maxBuffer: 10 * 1024 * 1024
+          });
+          
+          // Verificar si se generaron archivos .class
+          try {
+            const classFiles = await this.findFiles(classesDir, '**/*.class');
+            if (classFiles.length > 0) {
+              this.logger.log(`✅ Compilación Maven exitosa: ${classFiles.length} archivos .class`);
+              compilationSucceeded = true;
+              break;
+            }
+          } catch (e) {
+            // Continuar con siguiente intento
+          }
+          
+          if (stdout.includes('BUILD SUCCESS')) {
+            this.logger.log('✅ BUILD SUCCESS');
             compilationSucceeded = true;
           }
-        } catch (e) {
-          // No hay archivos .class
+        } catch (compileError: any) {
+          const errorMsg = compileError.message || '';
+          const stderr = compileError.stderr?.toString().substring(0, 500) || '';
+          this.logger.debug(`   ⚠️ Falló: ${errorMsg.substring(0, 100)}`);
+          
+          // Verificar si aun así hay archivos .class generados parcialmente
+          try {
+            const classFiles = await this.findFiles(classesDir, '**/*.class');
+            if (classFiles.length > 0) {
+              this.logger.log(`✅ A pesar del error, hay ${classFiles.length} archivos .class`);
+              compilationSucceeded = true;
+              break;
+            }
+          } catch (e) {
+            // Continuar
+          }
         }
       }
       
       if (!compilationSucceeded) {
-        this.logger.warn('⚠️ Maven no compiló - el proyecto tiene dependencias externas no disponibles');
+        this.logger.warn('⚠️ Maven no pudo compilar el proyecto');
         this.logger.log('   Intentando fallback con SpotBugs directo...');
-        // Retornar success: false para que runSpotBugs llame al fallback runSpotBugsDirectlyOnMavenProject
+        // Retornar success: false para que runSpotBugs llame al fallback
         return {
           tool: 'spotbugs',
           success: false,
@@ -702,30 +731,58 @@ export class ToolService {
           };
         }
         
-        let compiledCount = 0;
-        const failedFiles: string[] = [];
+        // Detectar el directorio fuente (src/main/java o src)
+        let sourceDir = projectDir;
+        const srcMainJava = path.join(projectDir, 'src', 'main', 'java');
+        const srcDir = path.join(projectDir, 'src');
         
-        // Compilar cada archivo individualmente, ignorando errores
-        for (const javaFile of javaFiles) {
-          try {
-            // Usar -proc:none para desactivar procesamiento de anotaciones
-            // Usar -nowarn para no mostrar warnings
-            await execAsync(`javac -proc:none -nowarn -d "${classesDir}" "${javaFile}" 2>/dev/null`, { 
-              timeout: 15000,
-              shell: '/bin/sh'
-            });
-            compiledCount++;
-          } catch (e) {
-            // Archivo no compiló - probablemente tiene dependencias externas
-            failedFiles.push(path.basename(javaFile));
-          }
+        if (await this.fileExists(srcMainJava)) {
+          sourceDir = srcMainJava;
+        } else if (await this.fileExists(srcDir)) {
+          sourceDir = srcDir;
         }
         
-        this.logger.log(`   ✅ Compilados: ${compiledCount}/${javaFiles.length} archivos`);
-        if (failedFiles.length > 0 && failedFiles.length <= 10) {
-          this.logger.log(`   ⚠️ No compilaron: ${failedFiles.join(', ')}`);
-        } else if (failedFiles.length > 10) {
-          this.logger.log(`   ⚠️ No compilaron: ${failedFiles.length} archivos (dependencias externas)`);
+        this.logger.log(`   Directorio fuente: ${sourceDir}`);
+        
+        // Estrategia 1: Intentar compilar todos juntos con sourcepath
+        try {
+          const allJavaFiles = javaFiles.map(f => `"${f}"`).join(' ');
+          const compileCmd = `javac -sourcepath "${sourceDir}" -d "${classesDir}" -Xlint:none -proc:none ${allJavaFiles} 2>&1 || true`;
+          
+          this.logger.log('   Intentando compilación masiva...');
+          await execAsync(compileCmd, { 
+            timeout: 120000, 
+            cwd: projectDir,
+            shell: '/bin/sh',
+            maxBuffer: 10 * 1024 * 1024
+          });
+          
+          classFiles = await this.findFiles(classesDir, '**/*.class');
+          if (classFiles.length > 0) {
+            this.logger.log(`   ✅ Compilación masiva exitosa: ${classFiles.length} archivos .class`);
+          }
+        } catch (e) {
+          this.logger.debug('   Compilación masiva falló, intentando individual...');
+        }
+        
+        // Estrategia 2: Si la masiva no funcionó, compilar individualmente
+        if (classFiles.length === 0) {
+          let compiledCount = 0;
+          
+          for (const javaFile of javaFiles) {
+            try {
+              await execAsync(`javac -sourcepath "${sourceDir}" -d "${classesDir}" -Xlint:none -proc:none "${javaFile}" 2>/dev/null || true`, { 
+                timeout: 10000,
+                shell: '/bin/sh'
+              });
+            } catch (e) {
+              // Ignorar errores individuales
+            }
+          }
+          
+          classFiles = await this.findFiles(classesDir, '**/*.class');
+          compiledCount = classFiles.length;
+          this.logger.log(`   ✅ Compilados: ${compiledCount} archivos .class`);
         }
         
         // Verificar archivos compilados
