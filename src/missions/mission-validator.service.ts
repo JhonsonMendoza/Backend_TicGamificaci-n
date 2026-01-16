@@ -320,8 +320,9 @@ export class MissionValidatorService {
     // Generar código Java que ejecute el método y retorne el resultado como JSON
     let setupCode = test.setup || `new ${test.className}()`;
     
-    // Si el método es estático, no necesita instancia
-    const isStatic = test.params === null || test.setup?.includes('static');
+    // Si el método es estático: no hay setup definido o el setup incluye 'static'
+    // Los métodos como CaidaLibre.velocidadFinal() son estáticos cuando no tienen setup
+    const isStatic = !test.setup || test.setup?.includes('static');
     
     let methodCall = '';
     if (isStatic) {
@@ -379,10 +380,37 @@ public class TestRunner {
     if (!params || params.length === 0) return '';
     
     return params.map(p => {
+      // Strings: envolver en comillas
       if (typeof p === 'string') return `"${p}"`;
-      if (typeof p === 'object' && p.type === 'Vector2D') {
+      
+      // Objetos especiales como Vector2D
+      if (typeof p === 'object' && p !== null && p.type === 'Vector2D') {
         return `new Vector2D(${p.value[0]}, ${p.value[1]})`;
       }
+      
+      // Arrays de primitivos: convertir a array Java
+      if (Array.isArray(p)) {
+        // Detectar tipo del array
+        if (p.length === 0) return 'new double[]{}';
+        const firstElement = p[0];
+        if (typeof firstElement === 'number') {
+          // Array de doubles
+          return `new double[]{${p.join(', ')}}`;
+        } else if (typeof firstElement === 'boolean') {
+          // Array de booleans
+          return `new boolean[]{${p.join(', ')}}`;
+        } else if (typeof firstElement === 'string') {
+          // Array de strings
+          return `new String[]{${p.map(s => `"${s}"`).join(', ')}}`;
+        }
+        // Array genérico
+        return `new Object[]{${p.join(', ')}}`;
+      }
+      
+      // Booleanos
+      if (typeof p === 'boolean') return String(p);
+      
+      // Números y otros primitivos
       return String(p);
     }).join(', ');
   }
