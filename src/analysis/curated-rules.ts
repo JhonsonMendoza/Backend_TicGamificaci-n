@@ -13,7 +13,7 @@
 
 export interface CuratedRule {
   id: string;
-  tool: 'spotbugs' | 'pmd' | 'semgrep';
+  tool: 'spotbugs' | 'pmd' | 'semgrep' | 'direct-detection';
   severity: 'high' | 'medium' | 'low';
   title: string;
   explanation: string;
@@ -528,6 +528,106 @@ export const CURATED_RULES: Record<string, CuratedRule[]> = {
       recommendation: 'Elimina la verificación redundante para código más limpio.',
       patterns: ['useless-null-check', 'redundant null', 'unnecessary null check']
     }
+  ],
+
+  // ============================================================
+  // DIRECT-DETECTION RULES (Reglas esenciales de seguridad)
+  // Estas reglas complementan las herramientas principales detectando
+  // patrones que pueden escapar a SpotBugs/PMD/Semgrep
+  // ============================================================
+  'direct-detection': [
+    // === HIGH (7) - Vulnerabilidades Críticas ===
+    {
+      id: 'SQL Injection',
+      tool: 'direct-detection',
+      severity: 'high',
+      title: '🔴 ¡PELIGRO! Posible Inyección SQL',
+      explanation: 'Estás concatenando datos de usuario directamente en una consulta SQL. Un atacante puede modificar tu consulta para robar datos o destruir tu base de datos.',
+      recommendation: 'Usa PreparedStatement con parámetros: `PreparedStatement ps = conn.prepareStatement("SELECT * FROM users WHERE id = ?"); ps.setInt(1, userId);`',
+      patterns: ['sql injection', 'sql-injection', 'sqli', 'jdbc-sqli', 'tainted-sql']
+    },
+    {
+      id: 'Command Injection',
+      tool: 'direct-detection',
+      severity: 'high',
+      title: '🔴 ¡CRÍTICO! Inyección de Comandos',
+      explanation: 'Estás ejecutando comandos del sistema con datos de usuario. Un atacante puede ejecutar cualquier comando en tu servidor.',
+      recommendation: 'Evita Runtime.exec() con entrada de usuario. Si es necesario, usa una lista blanca de comandos permitidos y nunca concatenes strings.',
+      patterns: ['command injection', 'command-injection', 'os command', 'runtime.exec', 'processbuilder']
+    },
+    {
+      id: 'Path Traversal',
+      tool: 'direct-detection',
+      severity: 'high',
+      title: '🔴 ¡PELIGRO! Traversal de Directorios',
+      explanation: 'El usuario puede usar "../" para acceder a archivos fuera del directorio permitido, como /etc/passwd o archivos de configuración.',
+      recommendation: 'Valida que la ruta no contenga ".." y usa getCanonicalPath() para normalizar: `File file = new File(basePath, userInput).getCanonicalFile(); if (!file.getPath().startsWith(basePath)) throw new SecurityException();`',
+      patterns: ['path traversal', 'path-traversal', 'directory traversal', 'lfi', 'file inclusion']
+    },
+    {
+      id: 'Hardcoded Credential',
+      tool: 'direct-detection',
+      severity: 'high',
+      title: '🔴 ¡PELIGRO! Credencial en código fuente',
+      explanation: 'Las contraseñas, tokens y claves API no deben estar en el código. Cualquiera con acceso al código las verá.',
+      recommendation: 'Usa variables de entorno: `String password = System.getenv("DB_PASSWORD");` o archivos de configuración externos (.env, application.properties).',
+      patterns: ['hardcoded credential', 'hardcoded-credential', 'hardcoded password', 'hardcoded secret', 'hardcoded token']
+    },
+    {
+      id: 'Insecure Randomness',
+      tool: 'direct-detection',
+      severity: 'high',
+      title: '🔴 Generador aleatorio predecible',
+      explanation: 'java.util.Random es predecible. Si generas tokens, contraseñas o claves de sesión, un atacante puede adivinarlos.',
+      recommendation: 'Usa SecureRandom para criptografía: `SecureRandom random = new SecureRandom(); byte[] token = new byte[32]; random.nextBytes(token);`',
+      patterns: ['insecure random', 'insecure-random', 'weak random', 'predictable random', 'new random()']
+    },
+    {
+      id: 'Cross-Site Scripting (XSS)',
+      tool: 'direct-detection',
+      severity: 'high',
+      title: '🔴 ¡PELIGRO! Posible XSS',
+      explanation: 'Estás escribiendo datos de usuario directamente en la respuesta HTML. Un atacante puede inyectar JavaScript malicioso.',
+      recommendation: 'Escapa HTML: `StringEscapeUtils.escapeHtml4(userInput)` o usa frameworks que escapen automáticamente (Thymeleaf, JSF).',
+      patterns: ['xss', 'cross-site scripting', 'reflected xss', 'stored xss', 'innerhtml']
+    },
+    {
+      id: 'Code Injection',
+      tool: 'direct-detection',
+      severity: 'high',
+      title: '🔴 ¡CRÍTICO! Inyección de Código',
+      explanation: 'eval() ejecuta cualquier código JavaScript que reciba. Un atacante puede ejecutar código malicioso.',
+      recommendation: 'Nunca uses eval() con entrada de usuario. Usa JSON.parse() para datos JSON o encuentra alternativas más seguras.',
+      patterns: ['code injection', 'eval injection', 'eval(', 'remote code execution']
+    },
+    // === MEDIUM (3) - Fugas de Recursos ===
+    {
+      id: 'Resource Leak',
+      tool: 'direct-detection',
+      severity: 'medium',
+      title: '⚠️ Fuga de recursos',
+      explanation: 'No estás cerrando un recurso (archivo, conexión, stream). Esto causa memory leaks y puede agotar los recursos del sistema.',
+      recommendation: 'Usa try-with-resources: `try (InputStream is = new FileInputStream(file)) { ... }` El recurso se cierra automáticamente.',
+      patterns: ['resource leak', 'resource-leak', 'unclosed', 'memory leak', 'stream not closed']
+    },
+    {
+      id: 'Null Pointer Dereference',
+      tool: 'direct-detection',
+      severity: 'medium',
+      title: '⚠️ Posible NullPointerException',
+      explanation: 'Estás usando una variable que podría ser null. Tu programa crasheará si es null.',
+      recommendation: 'Verifica antes de usar: `if (variable != null) { variable.metodo(); }` o usa Optional.',
+      patterns: ['null pointer', 'null-pointer', 'nullpointerexception', 'null dereference', 'np_null']
+    },
+    {
+      id: 'Insecure String Comparison',
+      tool: 'direct-detection',
+      severity: 'medium',
+      title: '⚠️ Comparación de strings incorrecta',
+      explanation: 'Usas == para comparar strings. Esto compara referencias, no contenido. Funcionará a veces y fallará otras.',
+      recommendation: 'Usa .equals(): `if (str1.equals(str2))` o mejor: `if ("constante".equals(variable))` para evitar null.',
+      patterns: ['string comparison', 'insecure string', 'equals vs ==', 'string ==']
+    }
   ]
 };
 
@@ -538,7 +638,8 @@ export function getAllCuratedRules(): CuratedRule[] {
   return [
     ...CURATED_RULES.spotbugs,
     ...CURATED_RULES.pmd,
-    ...CURATED_RULES.semgrep
+    ...CURATED_RULES.semgrep,
+    ...(CURATED_RULES['direct-detection'] || [])
   ];
 }
 
@@ -640,7 +741,8 @@ export const CURATED_RULES_STATS = {
   byTool: {
     spotbugs: CURATED_RULES.spotbugs.length,
     pmd: CURATED_RULES.pmd.length,
-    semgrep: CURATED_RULES.semgrep.length
+    semgrep: CURATED_RULES.semgrep.length,
+    'direct-detection': (CURATED_RULES['direct-detection'] || []).length
   },
   bySeverity: {
     high: getAllCuratedRules().filter(r => r.severity === 'high').length,

@@ -13,6 +13,161 @@ import {
   CURATED_RULES_STATS 
 } from './curated-rules';
 
+// ==================== DEDUPLICATION SYSTEM ====================
+// Prioridad de herramientas (mayor número = mayor prioridad)
+const TOOL_PRIORITY: { [key: string]: number } = {
+  'semgrep': 4,      // Mayor prioridad - más específico
+  'spotbugs': 3,
+  'pmd': 2,
+  'direct-detection': 1  // Menor prioridad
+};
+
+// Mapeo de reglas equivalentes para normalización
+const EQUIVALENT_RULES: { [key: string]: string } = {
+  // SQL Injection variants
+  'sql injection': 'SQL_INJECTION',
+  'tainted-sql-string': 'SQL_INJECTION',
+  'jdbc-sqli': 'SQL_INJECTION',
+  'sql-injection': 'SQL_INJECTION',
+  'sqli': 'SQL_INJECTION',
+  'sql_injection': 'SQL_INJECTION',
+  'tainted_sql': 'SQL_INJECTION',
+  
+  // XSS variants
+  'cross-site scripting (xss)': 'XSS',
+  'cross-site scripting': 'XSS',
+  'xss': 'XSS',
+  'reflected-xss': 'XSS',
+  'stored-xss': 'XSS',
+  'dom-xss': 'XSS',
+  
+  // Hardcoded credentials variants
+  'hardcoded credential': 'HARDCODED_CREDENTIAL',
+  'hardcoded-credentials': 'HARDCODED_CREDENTIAL',
+  'hardcoded credentials': 'HARDCODED_CREDENTIAL',
+  'hardcoded secret': 'HARDCODED_CREDENTIAL',
+  'hardcoded-secret': 'HARDCODED_CREDENTIAL',
+  'hardcoded password': 'HARDCODED_CREDENTIAL',
+  
+  // Null pointer variants
+  'null pointer dereference': 'NULL_POINTER',
+  'np_null_on_some_path': 'NULL_POINTER',
+  'np_null': 'NULL_POINTER',
+  'null-dereference': 'NULL_POINTER',
+  'nullpointerexception': 'NULL_POINTER',
+  
+  // Command injection variants
+  'command injection': 'COMMAND_INJECTION',
+  'command-injection': 'COMMAND_INJECTION',
+  'os-command-injection': 'COMMAND_INJECTION',
+  'exec-injection': 'COMMAND_INJECTION',
+  
+  // Path traversal variants
+  'path traversal': 'PATH_TRAVERSAL',
+  'path-traversal': 'PATH_TRAVERSAL',
+  'directory-traversal': 'PATH_TRAVERSAL',
+  'lfi': 'PATH_TRAVERSAL',
+  
+  // Insecure randomness variants
+  'insecure randomness': 'INSECURE_RANDOM',
+  'insecure-randomness': 'INSECURE_RANDOM',
+  'weak-random': 'INSECURE_RANDOM',
+  'predictable-random': 'INSECURE_RANDOM',
+  
+  // Resource leak variants
+  'resource leak': 'RESOURCE_LEAK',
+  'resource-leak': 'RESOURCE_LEAK',
+  'unclosed-resource': 'RESOURCE_LEAK',
+  'os_open_stream': 'RESOURCE_LEAK',
+  
+  // Code injection variants
+  'code injection': 'CODE_INJECTION',
+  'eval-injection': 'CODE_INJECTION',
+  'remote-code-execution': 'CODE_INJECTION',
+};
+
+/**
+ * Normaliza el tipo de regla para comparación
+ */
+function normalizeRuleType(ruleType: string): string {
+  if (!ruleType) return 'UNKNOWN';
+  const lower = ruleType.toLowerCase().trim();
+  return EQUIVALENT_RULES[lower] || ruleType.toUpperCase().replace(/[\s-]+/g, '_');
+}
+
+/**
+ * Extrae información clave de un finding para deduplicación
+ */
+function getFindingKey(finding: any): { file: string; line: number; normalizedType: string } {
+  const file = finding.path || finding.file || finding.sourcefile || finding.fileName || '';
+  const line = finding.line || finding.start?.line || finding.startLine || finding.beginline || 0;
+  const ruleType = finding.type || finding.rule || finding.check_id || finding.message || '';
+  const normalizedType = normalizeRuleType(ruleType);
+  
+  return { file, line: Number(line), normalizedType };
+}
+
+/**
+ * Deduplica findings entre herramientas, priorizando según TOOL_PRIORITY
+ * @param toolResults Array de resultados de herramientas
+ * @returns Array de findings deduplicados
+ */
+function deduplicateFindings(toolResults: ToolResult[]): { deduplicatedFindings: any[]; stats: any } {
+  // Mapa: "file:line:normalizedType" -> { finding, tool, priority }
+  const findingsMap = new Map<string, { finding: any; tool: string; priority: number }>();
+  
+  let totalOriginal = 0;
+  let duplicatesRemoved = 0;
+  const duplicateDetails: string[] = [];
+  
+  // Ordenar herramientas por prioridad (mayor primero)
+  const sortedResults = [...toolResults].sort((a, b) => {
+    const priorityA = TOOL_PRIORITY[a.tool.toLowerCase()] || 0;
+    const priorityB = TOOL_PRIORITY[b.tool.toLowerCase()] || 0;
+    return priorityB - priorityA;
+  });
+  
+  for (const result of sortedResults) {
+    if (!Array.isArray(result.findings)) continue;
+    
+    const toolName = result.tool.toLowerCase();
+    const toolPriority = TOOL_PRIORITY[toolName] || 0;
+    
+    for (const finding of result.findings) {
+      totalOriginal++;
+      const { file, line, normalizedType } = getFindingKey(finding);
+      const key = `${file}:${line}:${normalizedType}`;
+      
+      if (findingsMap.has(key)) {
+        const existing = findingsMap.get(key)!;
+        // Solo reemplazar si la nueva herramienta tiene mayor prioridad
+        if (toolPriority > existing.priority) {
+          findingsMap.set(key, { finding: { ...finding, _tool: toolName }, tool: toolName, priority: toolPriority });
+          duplicatesRemoved++;
+          duplicateDetails.push(`${key} [${existing.tool}→${toolName}]`);
+        } else {
+          duplicatesRemoved++;
+          duplicateDetails.push(`${key} [${toolName} ignorado, ${existing.tool} tiene prioridad]`);
+        }
+      } else {
+        findingsMap.set(key, { finding: { ...finding, _tool: toolName }, tool: toolName, priority: toolPriority });
+      }
+    }
+  }
+  
+  const deduplicatedFindings = Array.from(findingsMap.values()).map(v => v.finding);
+  
+  return {
+    deduplicatedFindings,
+    stats: {
+      totalOriginal,
+      afterDeduplication: deduplicatedFindings.length,
+      duplicatesRemoved,
+      duplicateDetails: duplicateDetails.slice(0, 10) // Solo mostrar primeros 10 para no saturar logs
+    }
+  };
+}
+
 export interface AnalysisResult {
   id: number;
   student: string;
@@ -606,19 +761,26 @@ export class AnalysisService {
   }
 
   private processToolResults(toolResults: ToolResult[]): any {
+    // 1. Aplicar deduplicación inteligente
+    const { deduplicatedFindings, stats } = deduplicateFindings(toolResults);
+    
+    this.logger.log(`📊 DEDUPLICACIÓN: ${stats.totalOriginal} → ${stats.afterDeduplication} findings (${stats.duplicatesRemoved} duplicados eliminados)`);
+    if (stats.duplicateDetails.length > 0) {
+      this.logger.debug(`🔍 Duplicados: ${stats.duplicateDetails.join(', ')}`);
+    }
+
     const processed = {
       summary: {
         toolsExecuted: toolResults.length,
         successfulTools: toolResults.filter(r => r.success).length,
         failedTools: toolResults.filter(r => !r.success).length,
+        deduplication: stats,
       },
       results: {},
-      deduplicationMap: {}, // Maps findings to tools that detected them
+      deduplicatedFindings: deduplicatedFindings,
     };
 
-    // Crear un mapa para deduplicación de hallazgos idénticos entre herramientas
-    const findingsMap = new Map<string, { finding: any; tools: Set<string> }>();
-
+    // 2. Guardar resultados originales por herramienta (para referencia)
     for (const result of toolResults) {
       processed.results[result.tool] = {
         success: result.success,
@@ -626,29 +788,7 @@ export class AnalysisService {
         findings: result.findings,
         error: result.error,
       };
-
-      // Generar keys para deduplicación (path + line + message)
-      if (Array.isArray(result.findings)) {
-        for (const finding of result.findings) {
-          const filePath = finding.path || finding.file || finding.sourcefile || finding.fileName || '';
-          const line = finding.line || finding.start?.line || finding.startLine || '';
-          const message = (finding.message || finding.rule || finding.type || '').substring(0, 100);
-          const key = `${filePath}:${line}:${message}`;
-
-          if (findingsMap.has(key)) {
-            findingsMap.get(key)!.tools.add(result.tool);
-          } else {
-            findingsMap.set(key, { finding, tools: new Set([result.tool]) });
-          }
-        }
-      }
     }
-
-    // Guardar el mapa de deduplicación para referencia
-    processed.deduplicationMap = Array.from(findingsMap.entries()).reduce((acc, [key, val]) => {
-      acc[key] = Array.from(val.tools);
-      return acc;
-    }, {});
 
     return processed;
   }
@@ -818,60 +958,44 @@ export class AnalysisService {
   }
 
   async generateMissionsFromFindings(analysis: AnalysisRun, toolResults: ToolResult[], missionsService: any): Promise<any[]> {
-    // Normalizar todos los findings en una lista plana
+    // ========== PASO 1: Aplicar deduplicación inteligente entre herramientas ==========
+    const { deduplicatedFindings, stats } = deduplicateFindings(toolResults);
+    this.logger.log(`📊 [DEDUPLICACIÓN] ${stats.totalOriginal} → ${stats.afterDeduplication} findings (${stats.duplicatesRemoved} duplicados eliminados)`);
+    
+    // Crear un toolResult virtual con los findings deduplicados
+    const deduplicatedToolResults: ToolResult[] = [{
+      tool: 'deduplicated',
+      success: true,
+      findings: deduplicatedFindings,
+    }];
+    
+    // ========== PASO 2: Normalizar todos los findings en una lista plana ==========
     const allFindings: any[] = [];
     
-    this.logger.log(`📊 [generateMissionsFromFindings] Procesando ${toolResults.length} herramientas`);
+    this.logger.log(`📊 [generateMissionsFromFindings] Procesando findings deduplicados`);
     this.logger.log(`📋 Usando ${CURATED_RULES_STATS.total} reglas curadas: SpotBugs=${CURATED_RULES_STATS.byTool.spotbugs}, PMD=${CURATED_RULES_STATS.byTool.pmd}, Semgrep=${CURATED_RULES_STATS.byTool.semgrep}`);
     
     // Contadores para tracking de reglas filtradas
     let filteredOutCount = 0;
     let curatedMatchCount = 0;
     
-    for (const tr of toolResults) {
-      if (!tr || !tr.findings) {
-        this.logger.log(`⚠️ [${tr?.tool || 'unknown'}] Sin findings`);
-        continue;
-      }
+    // Procesar findings deduplicados (tienen _tool marcado)
+    for (const f of deduplicatedFindings) {
+      const originalTool = f._tool || 'direct-detection';
       
-      const findingsCount = Array.isArray(tr.findings) ? tr.findings.length : 'objeto';
-      this.logger.log(`📖 [${tr.tool}] Procesando ${findingsCount} findings`);
-      
-      if (Array.isArray(tr.findings)) {
-        for (const f of tr.findings) {
-          // ✅ FILTRAR: Solo incluir findings que correspondan a reglas curadas
-          if (isRuleCurated(tr.tool, f)) {
-            allFindings.push({ tool: tr.tool, raw: f });
-            curatedMatchCount++;
-            if (tr.tool === 'semgrep') {
-              this.logger.log(`  ✅ SEMGREP CURADO: check_id=${f.check_id}, msg=${(f.message || '').substring(0, 50)}`);
-            }
-          } else {
-            filteredOutCount++;
-            this.logger.debug(`  ⏭️ [${tr.tool}] Regla no curada (ignorada): ${f.rule || f.check_id || f.type || f.$?.type || 'unknown'}`);
-          }
+      // ✅ FILTRAR: Solo incluir findings que correspondan a reglas curadas
+      // Para direct-detection, siempre incluir (son reglas esenciales)
+      if (originalTool === 'direct-detection' || isRuleCurated(originalTool, f)) {
+        allFindings.push({ tool: originalTool, raw: f });
+        curatedMatchCount++;
+        if (originalTool === 'semgrep') {
+          this.logger.log(`  ✅ SEMGREP CURADO: check_id=${f.check_id}, msg=${(f.message || '').substring(0, 50)}`);
+        } else if (originalTool === 'direct-detection') {
+          this.logger.log(`  ✅ DIRECT-DETECTION: type=${f.type}, msg=${(f.message || '').substring(0, 50)}`);
         }
-      } else if (typeof tr.findings === 'object') {
-        // Try to extract nested 'results' structure
-        const res = (tr.findings as any).results || tr.findings;
-        if (res && typeof res === 'object') {
-          for (const key of Object.keys(res || {})) {
-            const item = res[key];
-            const arr = item?.findings || item || [];
-            if (Array.isArray(arr)) {
-              for (const f of arr) {
-                // ✅ FILTRAR: Solo incluir findings que correspondan a reglas curadas
-                if (isRuleCurated(tr.tool, f)) {
-                  allFindings.push({ tool: tr.tool, raw: f });
-                  curatedMatchCount++;
-                } else {
-                  filteredOutCount++;
-                  this.logger.debug(`  ⏭️ [${tr.tool}] Regla no curada (ignorada): ${f.rule || f.check_id || f.type || 'unknown'}`);
-                }
-              }
-            }
-          }
-        }
+      } else {
+        filteredOutCount++;
+        this.logger.debug(`  ⏭️ [${originalTool}] Regla no curada (ignorada): ${f.rule || f.check_id || f.type || f.$?.type || 'unknown'}`);
       }
     }
 
