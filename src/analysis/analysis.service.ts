@@ -6,6 +6,12 @@ import { FileService, ToolService } from './services';
 import { ToolResult } from './services/tool.service';
 import { MissionsService } from './missions.service';
 import { AchievementsService } from '../auth/services/achievements.service';
+import { 
+  findMatchingCuratedRule, 
+  getEducationalMessage, 
+  isRuleCurated,
+  CURATED_RULES_STATS 
+} from './curated-rules';
 
 export interface AnalysisResult {
   id: number;
@@ -502,9 +508,20 @@ export class AnalysisService {
    * Las misiones se crean con severidad derivada de la clasificación interna.
    */
   /**
-   * Genera una descripción educativa y amigable para principiantes basada en el error detectado
+   * Genera una descripción educativa y amigable para principiantes basada en el error detectado.
+   * PRIORIDAD: Usa las reglas curadas primero, luego fallback a detección por patrones.
    */
   private generateEducationalDescription(tool: string, finding: any, severity: string): { title: string; description: string } {
+    // ✅ PRIMERO: Intentar usar las reglas curadas
+    const curatedMessage = getEducationalMessage(tool, finding);
+    if (curatedMessage) {
+      return {
+        title: curatedMessage.title,
+        description: curatedMessage.description
+      };
+    }
+    
+    // FALLBACK: Si no hay regla curada, usar el sistema anterior de detección por patrones
     const originalMessage = finding.message || finding.description || finding.rule || finding.type || finding.check_id || 'Problema detectado';
     const ruleId = finding.ruleId || finding.rule || finding.type || finding.check_id || finding.$?.type || '';
     const msgLower = (originalMessage + ' ' + ruleId).toLowerCase();
@@ -655,6 +672,11 @@ export class AnalysisService {
     const allFindings: any[] = [];
     
     this.logger.log(`📊 [generateMissionsFromFindings] Procesando ${toolResults.length} herramientas`);
+    this.logger.log(`📋 Usando ${CURATED_RULES_STATS.total} reglas curadas: SpotBugs=${CURATED_RULES_STATS.byTool.spotbugs}, PMD=${CURATED_RULES_STATS.byTool.pmd}, Semgrep=${CURATED_RULES_STATS.byTool.semgrep}`);
+    
+    // Contadores para tracking de reglas filtradas
+    let filteredOutCount = 0;
+    let curatedMatchCount = 0;
     
     for (const tr of toolResults) {
       if (!tr || !tr.findings) {
@@ -667,10 +689,16 @@ export class AnalysisService {
       
       if (Array.isArray(tr.findings)) {
         for (const f of tr.findings) {
-          allFindings.push({ tool: tr.tool, raw: f });
-          // Log más detallado para Semgrep
-          if (tr.tool === 'semgrep') {
-            this.logger.log(`  └─ SEMGREP: check_id=${f.check_id}, severity=${f.severity}, msg=${(f.message || '').substring(0, 50)}`);
+          // ✅ FILTRAR: Solo incluir findings que correspondan a reglas curadas
+          if (isRuleCurated(tr.tool, f)) {
+            allFindings.push({ tool: tr.tool, raw: f });
+            curatedMatchCount++;
+            if (tr.tool === 'semgrep') {
+              this.logger.log(`  ✅ SEMGREP CURADO: check_id=${f.check_id}, msg=${(f.message || '').substring(0, 50)}`);
+            }
+          } else {
+            filteredOutCount++;
+            this.logger.debug(`  ⏭️ [${tr.tool}] Regla no curada (ignorada): ${f.rule || f.check_id || f.type || f.$?.type || 'unknown'}`);
           }
         }
       } else if (typeof tr.findings === 'object') {
@@ -682,8 +710,14 @@ export class AnalysisService {
             const arr = item?.findings || item || [];
             if (Array.isArray(arr)) {
               for (const f of arr) {
-                allFindings.push({ tool: tr.tool, raw: f });
-                this.logger.debug(`  └─ ${tr.tool}[${key}]: ${f.message || f.rule || f.title || 'sin descripción'}`);
+                // ✅ FILTRAR: Solo incluir findings que correspondan a reglas curadas
+                if (isRuleCurated(tr.tool, f)) {
+                  allFindings.push({ tool: tr.tool, raw: f });
+                  curatedMatchCount++;
+                } else {
+                  filteredOutCount++;
+                  this.logger.debug(`  ⏭️ [${tr.tool}] Regla no curada (ignorada): ${f.rule || f.check_id || f.type || 'unknown'}`);
+                }
               }
             }
           }
@@ -691,16 +725,17 @@ export class AnalysisService {
       }
     }
 
-    this.logger.log(`✅ Total findings procesados: ${allFindings.length}`);
+    this.logger.log(`✅ Total findings después de filtrar: ${allFindings.length} (curadas: ${curatedMatchCount}, ignoradas: ${filteredOutCount})`);
 
     const missionsToCreate: Partial<any>[] = [];
 
     for (const f of allFindings) {
-      // Determinar severidad
-      const severity = this.determineSeverity(f.tool, f.raw);
+      // ✅ USAR REGLAS CURADAS: Obtener mensaje educativo y severidad de las reglas curadas
+      const curatedMessage = getEducationalMessage(f.tool, f.raw);
       
-      // Generar título y descripción educativa
-      const educational = this.generateEducationalDescription(f.tool, f.raw, severity);
+      // Si no hay mensaje curado (no debería pasar porque ya filtramos), usar fallback
+      const severity = curatedMessage?.severity || this.determineSeverity(f.tool, f.raw);
+      const educational = curatedMessage || this.generateEducationalDescription(f.tool, f.raw, severity);
       
       // Construir ubicación del problema
       const filePath = f.raw.path || f.raw.sourceLine?.sourcefile || f.raw.sourcefile || f.raw.fileName || f.raw.file || null;
@@ -1161,6 +1196,13 @@ export class AnalysisService {
   }
 
   private determineSeverity(tool: string, finding: any): 'high' | 'medium' | 'low' {
+    // ✅ PRIMERO: Usar severidad de reglas curadas si existe
+    const curatedRule = findMatchingCuratedRule(tool, finding);
+    if (curatedRule) {
+      return curatedRule.severity;
+    }
+    
+    // FALLBACK: Usar el método tradicional
     return this.determineSeverityFromFinding(tool, finding);
   }
 
@@ -1168,6 +1210,7 @@ export class AnalysisService {
    * Determina la severidad de un finding basado en la herramienta y sus propiedades
    * PMD: priority 1-2 = high, 3 = medium, 4-5 = low
    * SpotBugs: priority 1 = high, 2 = medium, 3+ = low
+   * NOTA: Este método es fallback cuando no hay regla curada
    */
   private determineSeverityFromFinding(tool: string, finding: any): 'high' | 'medium' | 'low' {
     try {
