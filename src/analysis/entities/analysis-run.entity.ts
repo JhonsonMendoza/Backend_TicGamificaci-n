@@ -26,6 +26,9 @@ export class AnalysisRun {
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'original_file_name' })
   originalFileName: string;
 
+  @Column({ type: 'varchar', length: 500, nullable: true, name: 'repository_url' })
+  repositoryUrl: string;
+
   @Column({ type: 'bigint', nullable: true, name: 'file_size' })
   fileSize: number;
 

@@ -277,6 +277,7 @@ export class AnalysisService {
         status: 'pending',
         projectPath: '',
         userId: userId || null,
+        repositoryUrl: repositoryUrl, // Guardar URL del repositorio
       });
       analysisRun = await this.analysisRunRepository.save(analysisRun);
       
@@ -391,6 +392,155 @@ export class AnalysisService {
       }
 
       throw new Error(`Error al analizar el repositorio: ${error.message}`);
+    }
+  }
+
+  /**
+   * Re-analiza un proyecto desde repositorio
+   * Detecta si es el mismo proyecto o uno diferente
+   */
+  async reanalyzeFromRepository(
+    previousAnalysisId: number,
+    repositoryUrl: string,
+    student: string,
+    userId: number
+  ): Promise<AnalysisResult> {
+    // Cargar el análisis anterior
+    const previousAnalysis = await this.analysisRunRepository.findOne({
+      where: { id: previousAnalysisId },
+    });
+
+    if (!previousAnalysis) {
+      throw new Error('Análisis anterior no encontrado');
+    }
+
+    // Crear nuevo análisis temporal
+    let analysisRun: AnalysisRun;
+    let projectPath: string;
+    let clonedRepoPath: string;
+
+    try {
+      // Validar URL
+      let repoName = '';
+      try {
+        const url = new URL(repositoryUrl);
+        repoName = url.pathname.split('/').filter(p => p).pop()?.replace('.git', '') || 'repo';
+      } catch {
+        throw new Error(`URL de repositorio inválida: ${repositoryUrl}`);
+      }
+
+      // Crear registro temporal
+      analysisRun = this.analysisRunRepository.create({
+        student,
+        originalFileName: `${repoName} (Repositorio)`,
+        status: 'processing',
+        projectPath: '',
+        userId,
+        repositoryUrl,
+      });
+      analysisRun = await this.analysisRunRepository.save(analysisRun);
+
+      // Clonar repositorio
+      clonedRepoPath = await this.fileService.cloneRepository(repositoryUrl, analysisRun.id.toString());
+      projectPath = clonedRepoPath;
+      analysisRun.projectPath = projectPath;
+
+      // Analizar estructura
+      const fileInfo = await this.fileService.findProjectFiles(projectPath);
+      analysisRun.fileStats = {
+        totalFiles: fileInfo.allFiles.length,
+        javaFiles: fileInfo.javaFiles.length,
+        pythonFiles: fileInfo.pythonFiles.length,
+        jsFiles: fileInfo.jsFiles.length,
+        linesOfCode: await this.countLinesOfCode(fileInfo.allFiles),
+      };
+
+      // Comparar si es el mismo proyecto
+      const isSameProject = this.compareProjectStructure(
+        previousAnalysis.fileStats,
+        analysisRun.fileStats,
+        fileInfo
+      );
+
+      this.logger.log(`Re-análisis de repo: isSameProject=${isSameProject}`);
+
+      if (isSameProject) {
+        // Es el mismo proyecto: actualizar el anterior
+        previousAnalysis.projectPath = analysisRun.projectPath;
+        previousAnalysis.fileStats = analysisRun.fileStats;
+        previousAnalysis.status = 'processing';
+        previousAnalysis.repositoryUrl = repositoryUrl;
+        await this.analysisRunRepository.save(previousAnalysis);
+        
+        // Eliminar el temporal
+        await this.analysisRunRepository.delete(analysisRun.id);
+        analysisRun = previousAnalysis;
+      }
+
+      // Ejecutar análisis
+      const toolResults = await this.toolService.runAllTools(projectPath, fileInfo);
+
+      // Procesar misiones
+      let missions: any[] = [];
+      if (isSameProject) {
+        await this.updateMissionsStatus(analysisRun, toolResults);
+        missions = await this.missionsService.findByAnalysisId(analysisRun.id);
+      } else {
+        missions = await this.generateMissionsFromFindings(analysisRun, toolResults, this.missionsService);
+      }
+
+      // Calcular métricas
+      const missionsByPriority = {
+        high: missions.filter((m: any) => m.severity === 'high').length,
+        medium: missions.filter((m: any) => m.severity === 'medium').length,
+        low: missions.filter((m: any) => m.severity === 'low').length
+      };
+
+      analysisRun.totalIssues = missions.length;
+      analysisRun.highSeverityIssues = missionsByPriority.high;
+      analysisRun.mediumSeverityIssues = missionsByPriority.medium;
+      analysisRun.lowSeverityIssues = missionsByPriority.low;
+      analysisRun.qualityScore = this.calculateQualityScoreFromMissions(
+        missionsByPriority.high, missionsByPriority.medium, missionsByPriority.low
+      );
+      analysisRun.toolResults = this.processToolResults(toolResults);
+      analysisRun.findings = this.processToolResults(toolResults);
+      analysisRun.status = 'completed';
+      analysisRun.completedAt = new Date();
+
+      await this.analysisRunRepository.save(analysisRun);
+
+      if (analysisRun.userId) {
+        await this.achievementsService.checkAndUnlockAchievements(analysisRun.userId);
+      }
+
+      return {
+        id: analysisRun.id,
+        student: analysisRun.student,
+        originalFileName: analysisRun.originalFileName,
+        status: analysisRun.status,
+        findings: analysisRun.findings,
+        totalIssues: analysisRun.totalIssues,
+        highSeverityIssues: analysisRun.highSeverityIssues,
+        mediumSeverityIssues: analysisRun.mediumSeverityIssues,
+        lowSeverityIssues: analysisRun.lowSeverityIssues,
+        qualityScore: analysisRun.qualityScore,
+        createdAt: analysisRun.createdAt.toISOString(),
+        completedAt: analysisRun.completedAt?.toISOString(),
+        message: isSameProject ? 'Proyecto actualizado' : 'Nuevo proyecto detectado',
+      };
+
+    } catch (error) {
+      this.logger.error(`Error en re-análisis de repositorio: ${error.message}`);
+      if (analysisRun) {
+        analysisRun.status = 'failed';
+        analysisRun.errorMessage = error.message;
+        await this.analysisRunRepository.save(analysisRun);
+      }
+      if (projectPath) {
+        await this.fileService.cleanupProject(projectPath);
+      }
+      throw error;
     }
   }
 

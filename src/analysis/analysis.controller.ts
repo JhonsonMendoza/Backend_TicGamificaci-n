@@ -438,12 +438,9 @@ export class AnalysisController {
   async reanalyzeAnalysis(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() file: Express.Multer.File,
+    @Body() body: { repositoryUrl?: string },
     @Request() req,
   ) {
-    if (!file) {
-      throw new BadRequestException('Archivo requerido para re-análisis');
-    }
-
     try {
       const analysis = await this.analysisService.findById(id);
 
@@ -453,21 +450,39 @@ export class AnalysisController {
         throw new BadRequestException('No autorizado para re-análisis de este análisis');
       }
 
-      // Ejecutar pipeline con student original, userId del solicitante, y pasar ID del análisis a re-analizar
       const studentName = analysis.student || req.user?.name || req.user?.email || `Usuario_${req.user?.id}` || 'Anónimo';
-      const result = await this.analysisService.runPipeline(
-        file.buffer, 
-        file.originalname, 
-        studentName, 
-        userId,
-        id // ID del análisis anterior para re-análisis
-      );
+      let result;
 
+      // Si el análisis original fue por repositorio y se proporciona URL, usar re-análisis por repo
+      if (body.repositoryUrl) {
+        result = await this.analysisService.reanalyzeFromRepository(
+          id,
+          body.repositoryUrl,
+          studentName,
+          userId
+        );
+      } else if (file) {
+        // Re-análisis por archivo ZIP
+        result = await this.analysisService.runPipeline(
+          file.buffer, 
+          file.originalname, 
+          studentName, 
+          userId,
+          id // ID del análisis anterior para re-análisis
+        );
+      } else {
+        throw new BadRequestException('Se requiere un archivo ZIP o URL de repositorio para el re-análisis');
+      }
+
+      const isSameProject = result.id === id;
       return {
         success: true,
-        message: 'Re-análisis completado. ' + (result.id === id ? 'Proyecto actualizado (mismo proyecto detectado).' : 'Nuevo proyecto detectado, análisis creado.'),
+        message: isSameProject 
+          ? 'Re-análisis completado. Proyecto actualizado correctamente.' 
+          : '⚠️ El proyecto enviado es diferente al original. Se ha creado un nuevo análisis.',
         data: result,
-        isSameProject: result.id === id,
+        isSameProject,
+        isNewProject: !isSameProject,
       };
     } catch (error) {
       throw new BadRequestException(error.message);
