@@ -17,88 +17,145 @@ export interface ToolResult {
   error?: string;
 }
 
+
+// Simple queue para limitar análisis simultáneos
+class AnalysisQueue {
+  private static maxConcurrent = 2;
+  private static running = 0;
+  private static queue: (() => void)[] = [];
+
+  static async acquire(): Promise<void> {
+    if (this.running < this.maxConcurrent) {
+      this.running++;
+      return;
+    }
+    await new Promise<void>(resolve => this.queue.push(resolve));
+    this.running++;
+  }
+
+  static release(): void {
+    this.running--;
+    if (this.queue.length > 0) {
+      const next = this.queue.shift();
+      if (next) next();
+    }
+  }
+}
+
 @Injectable()
 export class ToolService {
   private readonly logger = new Logger(ToolService.name);
 
   async runAllTools(projectDir: string, fileInfo: any): Promise<ToolResult[]> {
-    const results: ToolResult[] = [];
+    await AnalysisQueue.acquire();
+    const tempFiles: string[] = [];
+    try {
+      const results: ToolResult[] = [];
 
-    this.logger.log(`🚀 Iniciando análisis REAL en: ${projectDir}`);
-    this.logger.log(`📊 Java: ${fileInfo.javaFiles?.length || 0}, JS: ${fileInfo.jsFiles?.length || 0}, Total: ${fileInfo.allFiles?.length || 0}`);
+      this.logger.log(`🚀 Iniciando análisis REAL en: ${projectDir}`);
+      this.logger.log(`📊 Java: ${fileInfo.javaFiles?.length || 0}, JS: ${fileInfo.jsFiles?.length || 0}, Total: ${fileInfo.allFiles?.length || 0}`);
 
-    // Ejecutar herramientas reales para proyectos Java
-    if (fileInfo.javaFiles && fileInfo.javaFiles.length > 0) {
-      // SpotBugs análisis real
-      this.logger.log('🐛 Iniciando SpotBugs...');
-      const spotbugsResult = await this.runSpotBugs(projectDir);
-      this.logger.log(`🐛 SpotBugs completado: ${spotbugsResult.findings?.length || 0} hallazgos (success: ${spotbugsResult.success})`);
-      results.push(spotbugsResult);
+      // Ejecutar herramientas reales para proyectos Java
+      if (fileInfo.javaFiles && fileInfo.javaFiles.length > 0) {
+        // SpotBugs análisis real
+        this.logger.log('🐛 Iniciando SpotBugs...');
+        const spotbugsResult = await this.runSpotBugs(projectDir);
+        // Registrar archivos temporales SpotBugs
+        tempFiles.push(
+          ...[
+            'target/spotbugsXml.xml',
+            'target/spotbugs.xml',
+            'target/spotbugs-results.xml',
+            'target/spotbugsTemp.xml',
+            'target/spotbugs-direct.xml',
+            'target/site/spotbugs.xml',
+            'target/spotbugs-result.xml',
+            'spotbugs-output.xml'
+          ].map(f => require('path').join(projectDir, f))
+        );
+        this.logger.log(`🐛 SpotBugs completado: ${spotbugsResult.findings?.length || 0} hallazgos (success: ${spotbugsResult.success})`);
+        results.push(spotbugsResult);
 
-      // PMD análisis real
-      this.logger.log('📋 Iniciando PMD...');
-      const pmdResult = await this.runPMD(projectDir);
-      this.logger.log(`📋 PMD completado: ${pmdResult.findings?.length || 0} hallazgos (success: ${pmdResult.success})`);
-      results.push(pmdResult);
-    } else {
-      this.logger.warn('⚠️ No hay archivos Java detectados - omitiendo SpotBugs y PMD');
-    }
+        // PMD análisis real
+        this.logger.log('📋 Iniciando PMD...');
+        const pmdResult = await this.runPMD(projectDir);
+        tempFiles.push(
+          require('path').join(projectDir, 'pmd-results.xml'),
+          require('path').join(projectDir, 'target', 'pmd.xml'),
+          require('path').join(projectDir, 'target', 'site', 'pmd.xml')
+        );
+        this.logger.log(`📋 PMD completado: ${pmdResult.findings?.length || 0} hallazgos (success: ${pmdResult.success})`);
+        results.push(pmdResult);
+      } else {
+        this.logger.warn('⚠️ No hay archivos Java detectados - omitiendo SpotBugs y PMD');
+      }
 
-    // Semgrep análisis real (multi-lenguaje)
-    this.logger.log('🔍 Iniciando Semgrep...');
-    const semgrepResult = await this.runSemgrep(projectDir);
-    this.logger.log(`🔍 Semgrep completado: ${semgrepResult.findings?.length || 0} hallazgos (success: ${semgrepResult.success})`);
-    results.push(semgrepResult);
+      // Semgrep análisis real (multi-lenguaje)
+      this.logger.log('🔍 Iniciando Semgrep...');
+      const semgrepResult = await this.runSemgrep(projectDir);
+      tempFiles.push(require('path').join(projectDir, 'semgrep-results.json'));
+      this.logger.log(`🔍 Semgrep completado: ${semgrepResult.findings?.length || 0} hallazgos (success: ${semgrepResult.success})`);
+      results.push(semgrepResult);
 
-    // DETECCIÓN DIRECTA: SIEMPRE ejecutar análisis directo para capturar vulnerabilidades adicionales
-    this.logger.log('🔍 Ejecutando DETECCIÓN DIRECTA complementaria...');
-    const directIssues = await this.detectCodeIssuesDirectly(projectDir);
-    
-    if (directIssues.length > 0) {
-      this.logger.log(`🎯 Detección directa encontró ${directIssues.length} problemas adicionales`);
+      // DETECCIÓN DIRECTA: SIEMPRE ejecutar análisis directo para capturar vulnerabilidades adicionales
+      this.logger.log('🔍 Ejecutando DETECCIÓN DIRECTA complementaria...');
+      const directIssues = await this.detectCodeIssuesDirectly(projectDir);
       
-      // Agregar hallazgos de detección directa como herramienta separada (NO dentro de Semgrep)
-      results.push({
-        tool: 'direct-detection',
-        success: true,
-        findings: directIssues,
-        rawOutput: `Detección Directa: ${directIssues.length} problemas encontrados por análisis de patrones`
-      });
-      
-      this.logger.log(`✅ Agregados ${directIssues.length} problemas como resultado de "direct-detection"`);
-    } else {
-      this.logger.log(`⚠️ Detección directa no encontró problemas adicionales`);
-    }
-    
-    // Contar hallazgos totales
-    const totalFindings = results.reduce((sum, result) => sum + (result.findings?.length || 0), 0);
-    
-    if (totalFindings === 0) {
-      this.logger.log('⚠️ ¡ALERTA! Ninguna herramienta encontró problemas');
-    } else {
-      this.logger.log(`✅ Herramientas encontraron ${totalFindings} problemas nativamente`);
-    }
-
-    // LOGGING DETALLADO DE CADA HERRAMIENTA
-    this.logger.log('📊 ===== RESUMEN FINAL DE HERRAMIENTAS =====');
-    for (const result of results) {
-      const count = result.findings?.length || 0;
-      this.logger.log(`  🔧 ${result.tool.toUpperCase()}: ${count} hallazgos (success: ${result.success})`);
-      if (count > 0 && Array.isArray(result.findings)) {
-        result.findings.slice(0, 3).forEach((f: any, i: number) => {
-          const msg = f.message || f.description || f.rule || f.title || 'sin descripción';
-          const line = f.line || f.start?.line || f.beginline || 'sin línea';
-          this.logger.log(`    ${i+1}. [L${line}] ${msg.substring(0, 70)}`);
+      if (directIssues.length > 0) {
+        this.logger.log(`🎯 Detección directa encontró ${directIssues.length} problemas adicionales`);
+        
+        // Agregar hallazgos de detección directa como herramienta separada (NO dentro de Semgrep)
+        results.push({
+          tool: 'direct-detection',
+          success: true,
+          findings: directIssues,
+          rawOutput: `Detección Directa: ${directIssues.length} problemas encontrados por análisis de patrones`
         });
-        if (count > 3) {
-          this.logger.log(`    ... y ${count - 3} más`);
+        
+        this.logger.log(`✅ Agregados ${directIssues.length} problemas como resultado de "direct-detection"`);
+      } else {
+        this.logger.log(`⚠️ Detección directa no encontró problemas adicionales`);
+      }
+      
+      // Contar hallazgos totales
+      const totalFindings = results.reduce((sum, result) => sum + (result.findings?.length || 0), 0);
+      
+      if (totalFindings === 0) {
+        this.logger.log('⚠️ ¡ALERTA! Ninguna herramienta encontró problemas');
+      } else {
+        this.logger.log(`✅ Herramientas encontraron ${totalFindings} problemas nativamente`);
+      }
+
+      // LOGGING DETALLADO DE CADA HERRAMIENTA
+      this.logger.log('📊 ===== RESUMEN FINAL DE HERRAMIENTAS =====');
+      for (const result of results) {
+        const count = result.findings?.length || 0;
+        this.logger.log(`  🔧 ${result.tool.toUpperCase()}: ${count} hallazgos (success: ${result.success})`);
+        if (count > 0 && Array.isArray(result.findings)) {
+          result.findings.slice(0, 3).forEach((f: any, i: number) => {
+            const msg = f.message || f.description || f.rule || f.title || 'sin descripción';
+            const line = f.line || f.start?.line || f.beginline || 'sin línea';
+            this.logger.log(`    ${i+1}. [L${line}] ${msg.substring(0, 70)}`);
+          });
+          if (count > 3) {
+            this.logger.log(`    ... y ${count - 3} más`);
+          }
         }
       }
-    }
-    this.logger.log(`📊 ===== TOTAL: ${results.length} herramientas, ${totalFindings} hallazgos =====`);
+      this.logger.log(`📊 ===== TOTAL: ${results.length} herramientas, ${totalFindings} hallazgos =====`);
 
-    this.logger.log(`✅ Análisis REAL completado. ${results.length} herramientas ejecutadas.`);
-    return results;
+      this.logger.log(`✅ Análisis REAL completado. ${results.length} herramientas ejecutadas.`);
+      return results;
+    } finally {
+      // Limpieza de archivos temporales
+      const fs = require('fs/promises');
+      for (const file of tempFiles) {
+        try {
+          await fs.unlink(file);
+        } catch {}
+      }
+      AnalysisQueue.release();
+    }
   }
 
   private async runSpotBugs(projectDir: string): Promise<ToolResult> {
@@ -169,13 +226,13 @@ export class ToolService {
       // Detectar comando Maven disponible
       let mavenCmd = 'mvn';
       try {
-        await execAsync('mvn --version', { timeout: 30000 });
+        await execAsync('mvn --version', { timeout: 20000 }); // 20s
         this.logger.log('✅ Maven encontrado como comando global');
       } catch (e) {
         this.logger.warn('⚠️ Maven no encontrado en PATH, intentando /usr/bin/mvn');
         mavenCmd = '/usr/bin/mvn';
         try {
-          await execAsync('/usr/bin/mvn --version', { timeout: 30000 });
+          await execAsync('/usr/bin/mvn --version', { timeout: 20000 }); // 20s
           this.logger.log('✅ Maven encontrado en /usr/bin/mvn');
         } catch (e2) {
           this.logger.error('❌ Maven no disponible - intentando SpotBugs directo');
@@ -251,7 +308,7 @@ export class ToolService {
           this.logger.log(`   Intentando: ${cmd.replace(mavenCmd, 'mvn')}`);
           const { stdout, stderr } = await execAsync(cmd, { 
             cwd: projectDir, 
-            timeout: 300000,
+            timeout: 120000, // 2 minutos máximo para compilar
             maxBuffer: 10 * 1024 * 1024
           });
           
@@ -320,7 +377,7 @@ export class ToolService {
         // Usar -DxmlOutput=true para asegurar que se genere XML
         const spotbugsCmd = `${mavenCmd} spotbugs:spotbugs -DskipTests -DxmlOutput=true`;
         this.logger.log(`📋 Comando: ${spotbugsCmd}`);
-        spotbugsOutput = await execAsync(spotbugsCmd, { cwd: projectDir, timeout: 300000 });
+        spotbugsOutput = await execAsync(spotbugsCmd, { cwd: projectDir, timeout: 120000 }); // 2 min
         this.logger.log('✅ Maven spotbugs:spotbugs completado');
       } catch (spotbugsError: any) {
         // SpotBugs con Maven puede fallar si encuentra bugs, pero el XML se genera de todos modos
@@ -369,7 +426,7 @@ export class ToolService {
           
           for (const sbPath of spotbugsPaths) {
             try {
-              await execAsync(`${sbPath} -version`, { timeout: 5000 });
+              await execAsync(`${sbPath} -version`, { timeout: 3000 }); // 3s
               spotbugsCmd = sbPath;
               this.logger.log(`✅ SpotBugs encontrado en: ${sbPath}`);
               break;
@@ -383,7 +440,7 @@ export class ToolService {
           const spotbugsCmd_str = `${spotbugsCmd} -textui -xml:withMessages -output "${outputXml}" "${classesDir}"`;
           this.logger.log(`📋 Comando: ${spotbugsCmd_str}`);
           
-          await execAsync(spotbugsCmd_str, { timeout: 300000 });
+          await execAsync(spotbugsCmd_str, { timeout: 120000 }); // 2 min
           this.logger.log(`✅ SpotBugs directo completado`);
         } catch (directError) {
           this.logger.warn(`⚠️ SpotBugs directo también falló: ${directError.message}`);
@@ -552,7 +609,7 @@ export class ToolService {
       // Verificar si spotbugs CLI está disponible
       this.logger.log('🔍 Verificando disponibilidad de SpotBugs CLI...');
       try {
-        await execAsync('spotbugs -version', { timeout: 5000 });
+        await execAsync('spotbugs -version', { timeout: 3000 }); // 3s
         this.logger.log('✅ SpotBugs CLI disponible');
       } catch (versionError) {
         this.logger.warn('⚠️ SpotBugs CLI no está instalado');
@@ -595,7 +652,7 @@ export class ToolService {
         const compileCmd = `javac -d "${classDir}" ${javaFilesStr}`;
         
         this.logger.log(`Compilando ${javaFiles.length} archivos Java...`);
-        await execAsync(compileCmd, { cwd: projectDir, timeout: 60000 });
+        await execAsync(compileCmd, { cwd: projectDir, timeout: 30000 }); // 30s
         this.logger.log('✅ Compilación con javac completada');
       } catch (compileError) {
         this.logger.warn(`⚠️ Error compilando con javac: ${compileError.message}`);
@@ -627,7 +684,7 @@ export class ToolService {
       
       try {
         this.logger.log(`Ejecutando: ${spotbugsCmd}`);
-        await execAsync(spotbugsCmd, { timeout: 300000 });
+        await execAsync(spotbugsCmd, { timeout: 120000 }); // 2 min
       } catch (e) {
         // SpotBugs puede devolver exit code diferente de 0 incluso si genera el XML
         this.logger.warn('⚠️ SpotBugs completó (puede haber bugs detectados)');
@@ -751,7 +808,7 @@ export class ToolService {
           
           this.logger.log('   Intentando compilación masiva...');
           await execAsync(compileCmd, { 
-            timeout: 120000, 
+            timeout: 60000, // 1 min
             cwd: projectDir,
             shell: '/bin/sh',
             maxBuffer: 10 * 1024 * 1024
@@ -772,7 +829,7 @@ export class ToolService {
           for (const javaFile of javaFiles) {
             try {
               await execAsync(`javac -sourcepath "${sourceDir}" -d "${classesDir}" -Xlint:none -proc:none "${javaFile}" 2>/dev/null || true`, { 
-                timeout: 10000,
+                timeout: 7000, // 7s por archivo
                 shell: '/bin/sh'
               });
             } catch (e) {
@@ -818,7 +875,7 @@ export class ToolService {
       this.logger.log('🔍 Buscando SpotBugs ejecutable...');
       for (const sbPath of spotbugsPaths) {
         try {
-          const { stdout } = await execAsync(`${sbPath} -version`, { timeout: 10000 });
+          const { stdout } = await execAsync(`${sbPath} -version`, { timeout: 3000 }); // 3s
           spotbugsExe = sbPath;
           this.logger.log(`✅ SpotBugs encontrado en: ${sbPath} - ${stdout.trim()}`);
           break;
@@ -842,7 +899,7 @@ export class ToolService {
       this.logger.log(`📋 Comando: ${spotbugsCmd}`);
       
       try {
-        const { stdout, stderr } = await execAsync(spotbugsCmd, { timeout: 300000 });
+        const { stdout, stderr } = await execAsync(spotbugsCmd, { timeout: 120000 }); // 2 min
         this.logger.log('✅ SpotBugs directo completado');
         if (stdout) this.logger.debug(`   stdout: ${stdout.substring(0, 200)}`);
       } catch (e: any) {
@@ -953,7 +1010,7 @@ export class ToolService {
       
       for (const pmdPath of pmdPaths) {
         try {
-          await execAsync(`${pmdPath} --version`, { timeout: 5000 });
+          await execAsync(`${pmdPath} --version`, { timeout: 3000 }); // 3s
           pmdExe = pmdPath;
           this.logger.log(`    ✅ PMD encontrado en: ${pmdExe}`);
           break;
@@ -969,7 +1026,7 @@ export class ToolService {
       
       try {
         const pmdResult = await execAsync(pmdCmd, { 
-          timeout: 300000,
+          timeout: 120000, // 2 min
           cwd: projectDir,
           maxBuffer: 10 * 1024 * 1024
         } as any);
@@ -1004,7 +1061,7 @@ export class ToolService {
             
             try {
               await execAsync(mavenCmd, { 
-                timeout: 300000,
+                timeout: 120000, // 2 min
                 cwd: projectDir,
                 maxBuffer: 10 * 1024 * 1024
               } as any);
@@ -1207,7 +1264,7 @@ export class ToolService {
       try {
         this.logger.log(`⏳ Ejecutando Semgrep (timeout: 5 minutos)...`);
         const result = await execAsync(command, { 
-          timeout: 300000,
+          timeout: 120000, // 2 min
           maxBuffer: 10 * 1024 * 1024
         } as any);
         
@@ -1896,7 +1953,7 @@ export class ToolService {
         ? `dir /s /b "${dir}\\*${ext}"`
         : `find "${dir}" -name "*${ext}"`;
       
-      const { stdout } = await execAsync(command, { timeout: 10000, shell: true } as any);
+      const { stdout } = await execAsync(command, { timeout: 5000, shell: true } as any);
       return stdout.toString().trim().split('\n').filter(line => line.trim());
     } catch {
       return [];
@@ -1918,7 +1975,7 @@ export class ToolService {
             ? `dir /s /b "${srcPath}\\*.java"`
             : `find "${srcPath}" -name "*.java"`;
           
-          const { stdout } = await execAsync(command, { timeout: 5000, shell: true } as any);
+          const { stdout } = await execAsync(command, { timeout: 3000, shell: true } as any);
           if (stdout.toString().trim()) {
             return srcPath;
           }
@@ -1943,7 +2000,7 @@ export class ToolService {
             ? `dir /s /b "${projectDir}\\${ext}"`
             : `find "${projectDir}" -name "${ext}"`;
           
-          const { stdout } = await execAsync(command, { timeout: 5000, shell: true } as any);
+          const { stdout } = await execAsync(command, { timeout: 3000, shell: true } as any);
           if (stdout.toString().trim()) {
             return true;
           }

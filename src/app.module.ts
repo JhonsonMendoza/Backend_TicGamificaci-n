@@ -51,6 +51,10 @@ import { User } from './auth/entities/user.entity';
         // Configuraciones adicionales para la resiliencia
         retryAttempts: Number(configService.get<number>('DB_RETRY_ATTEMPTS') || 3),
         retryDelay: Number(configService.get<number>('DB_RETRY_DELAY') || 3000),
+        // Pool de conexiones
+        extra: {
+          max: 5, // máximo 5 conexiones simultáneas
+        },
       }),
       inject: [ConfigService],
     }),
